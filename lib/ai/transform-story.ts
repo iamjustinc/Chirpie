@@ -19,7 +19,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { ZodError } from "zod";
 import {
-  TransformInputSchema,
   TransformOutputSchema,
   type TransformInput,
   type TransformOutput,
@@ -129,11 +128,16 @@ function tryParse(raw: string): ParseResult {
 export async function transformStory(
   rawInput: TransformInput
 ): Promise<TransformOutput> {
-  // Validate input shape (belt-and-suspenders — route.ts also validates)
-  const input = TransformInputSchema.parse(rawInput);
+  // Do NOT re-parse here — route.ts already ran TransformInputSchema.parse()
+  // before calling this function. A second unguarded parse would turn any
+  // edge-case ZodError into a 500 instead of the 400 it deserves.
+  const input = rawInput;
 
-  // No API key → safe mock fallback (app stays functional without credentials)
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  // Trim guards against whitespace-padded or placeholder env var values
+  // (e.g. ANTHROPIC_API_KEY=" " or ANTHROPIC_API_KEY=your-key-here would
+  // otherwise pass the !apiKey check and blow up on the real API call).
+  const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
+
   if (!apiKey) {
     console.warn(
       "[Chirpie] ANTHROPIC_API_KEY not configured — returning deterministic mock output"

@@ -70,8 +70,11 @@ export async function POST(req: NextRequest) {
     const result = await transformStory(input);
     return NextResponse.json(result, { status: 200 });
   } catch (err) {
-    // Log full error server-side; expose only a clean message to the client
-    console.error("[Chirpie API /api/transform] Transform error:", err);
+    // Bare log first so the raw Error object (including stack) is always
+    // fully visible in the terminal, regardless of how the runtime formats
+    // multi-argument console.error calls.
+    console.error(err);
+    console.error("[Chirpie API /api/transform] Transform error above ↑");
     return NextResponse.json(
       { error: "Transform failed. Please try again." },
       { status: 500 }
