@@ -1,0 +1,47 @@
+[
+    {
+      "headline": "Sabrina Carpenter Announces Surprise World Tour Extension Adding 40 New Dates Across Asia and South America",
+      "summary": "Pop artist Sabrina Carpenter has expanded her Short n' Sweet World Tour with 40 additional dates spanning Japan, South Korea, Brazil, Argentina, and Australia, responding to unprecedented ticket demand that crashed multiple regional ticketing platforms within minutes of the original sale. The extension makes it her largest global touring run to date and includes her first-ever headline shows in Southeast Asia.",
+      "source": {
+        "name": "Billboard",
+        "url": "https://www.billboard.com"
+      },
+      "tone_preference": "gen_z"
+    },
+    {
+      "headline": "Nvidia Shares Fall 9% After US Government Expands AI Chip Export Restrictions to 40 Additional Countries",
+      "summary": "Nvidia stock dropped sharply in after-hours trading following a White House announcement expanding export controls on advanced AI chips, including the H100 and upcoming Blackwell series, to 40 additional countries beyond the existing China restrictions. Analysts estimate the new rules could reduce Nvidia's addressable market by up to $15 billion annually. The company has not yet issued formal guidance revisions.",
+      "source": {
+        "name": "Reuters",
+        "url": "https://www.reuters.com"
+      },
+      "tone_preference": "gen_z"
+    },
+    {
+      "headline": "Death Toll Rises to 847 as Earthquake and Subsequent Tsunamis Devastate Coastal Regions of Southern Japan",
+      "summary": "A 7.9 magnitude earthquake struck off the southern coast of Japan early Thursday morning, triggering tsunami waves of up to 12 meters that inundated multiple coastal cities. At least 847 people have been confirmed dead with over 2,300 still missing. Tens of thousands have been displaced, emergency shelters are overwhelmed, and rescue operations are ongoing. The Japanese government has declared a national disaster and international aid teams are mobilizing.",
+      "source": {
+        "name": "Associated Press",
+        "url": "https://www.apnews.com"
+      },
+      "tone_preference": "gen_z"
+    },
+    {
+      "headline": "OpenAI Launches GPT-5 With Real-Time Web Browsing and Native Voice Mode Available to All Free Users",
+      "summary": "OpenAI has released GPT-5 to the public, marking the first time a frontier-class model with live web browsing, multi-document reasoning, and real-time voice conversation has been made available on the free tier. The model significantly outperforms GPT-4o on standardized reasoning benchmarks and introduces a new memory architecture that retains context across separate conversations by default. The release accelerates ongoing competitive pressure on Google, Anthropic, and Meta.",
+      "source": {
+        "name": "The Verge",
+        "url": "https://www.theverge.com"
+      },
+      "tone_preference": "gen_z"
+    },
+    {
+      "headline": "Twitch Bans Use of AI-Generated Backgrounds During Live Streams Sparking Mass Creator Backlash and #SaveMyVtubeSetup Trending Globally",
+      "summary": "Twitch updated its community guidelines to prohibit the use of AI-generated virtual backgrounds and overlays during live broadcasts, citing concerns about undisclosed synthetic content. The policy change immediately impacted thousands of VTubers and indie creators who rely on AI-generated environments as core parts of their on-stream identity. The hashtag #SaveMyVtubeSetup trended globally within hours, and several prominent creators announced platform migrations to YouTube Live and Kick in protest.",
+      "source": {
+        "name": "Kotaku",
+        "url": "https://www.kotaku.com"
+      },
+      "tone_preference": "gen_z"
+    }
+  ]
