@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(/usr/local/bin/npm --version)",
+      "Bash(/opt/homebrew/bin/npm --version)",
+      "Bash(~/.nvm/versions/node/*/bin/npm)",
+      "Bash(--version)",
+      "Read(//Users/justinsmacbookair/.nvm/**)",
+      "Read(//Users/justinsmacbookair/.volta/**)",
+      "Bash(export PATH=\"/Users/justinsmacbookair/.volta/bin:$PATH\")",
+      "Bash(npm --version)",
+      "Bash(/opt/homebrew/bin/node --version)",
+      "Bash(/usr/local/bin/node /usr/local/lib/node_modules/npm/bin/npm-cli.js install)",
+      "Bash(PATH=/usr/local/bin:$PATH /usr/local/lib/node_modules/npm/bin/npm-cli.js install)",
+      "Bash(PATH=/usr/local/bin:$PATH /usr/local/lib/node_modules/npm/bin/npm-cli.js run build)"
+    ]
+  }
+}

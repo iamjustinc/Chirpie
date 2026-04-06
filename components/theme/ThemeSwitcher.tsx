@@ -52,7 +52,7 @@ export function ThemeSwitcher({
             <motion.div
               layoutId="theme-active-ring"
               className="absolute inset-0 rounded-pill ring-2 ring-offset-1"
-              style={{ ringColor: "var(--chirpie-primary)" }}
+              style={{ outline: "2px solid var(--chirpie-primary)", outlineOffset: "2px" }}
               transition={{ type: "spring", stiffness: 400, damping: 30 }}
             />
           )}
