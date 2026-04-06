@@ -1,0 +1,171 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Default theme: Classic Chat ─────────────────────────────────────────── */
+:root {
+  --chirpie-background: #f0f7fc;
+  --chirpie-foreground: #1e3a4f;
+  --chirpie-card: #ffffff;
+  --chirpie-card-foreground: #1e3a4f;
+  --chirpie-bubble-user: #dbeafe;
+  --chirpie-bubble-user-foreground: #1e3a5f;
+  --chirpie-bubble-assistant: #ffffff;
+  --chirpie-bubble-assistant-foreground: #2d4a5f;
+  --chirpie-border: #ddeef7;
+  --chirpie-shadow: rgba(160, 200, 230, 0.35);
+  --chirpie-accent: #5ba8cc;
+  --chirpie-accent-foreground: #ffffff;
+  --chirpie-muted: #eef5fa;
+  --chirpie-muted-foreground: #5e86a0;
+  --chirpie-chip: #daeef8;
+  --chirpie-chip-foreground: #2e6e96;
+  --chirpie-input: #ffffff;
+  --chirpie-ring: #7bb8d4;
+  --chirpie-primary: #4a9cc0;
+  --chirpie-primary-foreground: #ffffff;
+
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+}
+
+/* ─── Pixel Sky theme ─────────────────────────────────────────────────────── */
+[data-theme="pixel-sky"] {
+  --chirpie-background: #fffbf0;
+  --chirpie-foreground: #3d2c1e;
+  --chirpie-card: #fef9f0;
+  --chirpie-card-foreground: #3d2c1e;
+  --chirpie-bubble-user: #fde68a;
+  --chirpie-bubble-user-foreground: #78350f;
+  --chirpie-bubble-assistant: #fce7f3;
+  --chirpie-bubble-assistant-foreground: #831843;
+  --chirpie-border: #fde8cc;
+  --chirpie-shadow: rgba(251, 191, 36, 0.25);
+  --chirpie-accent: #ec4899;
+  --chirpie-accent-foreground: #ffffff;
+  --chirpie-muted: #fef3c7;
+  --chirpie-muted-foreground: #92400e;
+  --chirpie-chip: #fce7f3;
+  --chirpie-chip-foreground: #9d174d;
+  --chirpie-input: #fffbf0;
+  --chirpie-ring: #f472b6;
+  --chirpie-primary: #ec4899;
+  --chirpie-primary-foreground: #ffffff;
+}
+
+/* ─── Retro Pink theme ────────────────────────────────────────────────────── */
+[data-theme="retro-pink"] {
+  --chirpie-background: #fdf2f8;
+  --chirpie-foreground: #4a1942;
+  --chirpie-card: #fff0f7;
+  --chirpie-card-foreground: #4a1942;
+  --chirpie-bubble-user: #f8bbd9;
+  --chirpie-bubble-user-foreground: #880e4f;
+  --chirpie-bubble-assistant: #f3e5f5;
+  --chirpie-bubble-assistant-foreground: #4a148c;
+  --chirpie-border: #f5d0e8;
+  --chirpie-shadow: rgba(244, 143, 177, 0.25);
+  --chirpie-accent: #d63384;
+  --chirpie-accent-foreground: #ffffff;
+  --chirpie-muted: #fce4ec;
+  --chirpie-muted-foreground: #ad1457;
+  --chirpie-chip: #fce4ec;
+  --chirpie-chip-foreground: #c2185b;
+  --chirpie-input: #fff0f7;
+  --chirpie-ring: #f06292;
+  --chirpie-primary: #d63384;
+  --chirpie-primary-foreground: #ffffff;
+}
+
+/* ─── Night Mode theme ────────────────────────────────────────────────────── */
+[data-theme="night-mode"] {
+  --chirpie-background: #0f172a;
+  --chirpie-foreground: #e2e8f0;
+  --chirpie-card: #1e293b;
+  --chirpie-card-foreground: #e2e8f0;
+  --chirpie-bubble-user: #1d4ed8;
+  --chirpie-bubble-user-foreground: #dbeafe;
+  --chirpie-bubble-assistant: #1e293b;
+  --chirpie-bubble-assistant-foreground: #cbd5e1;
+  --chirpie-border: #334155;
+  --chirpie-shadow: rgba(99, 102, 241, 0.15);
+  --chirpie-accent: #818cf8;
+  --chirpie-accent-foreground: #0f172a;
+  --chirpie-muted: #1e293b;
+  --chirpie-muted-foreground: #64748b;
+  --chirpie-chip: #1e293b;
+  --chirpie-chip-foreground: #818cf8;
+  --chirpie-input: #1e293b;
+  --chirpie-ring: #6366f1;
+  --chirpie-primary: #6366f1;
+  --chirpie-primary-foreground: #ffffff;
+}
+
+/* ─── Base styles ─────────────────────────────────────────────────────────── */
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background-color: var(--chirpie-background);
+    color: var(--chirpie-foreground);
+    font-family: var(--font-sans);
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+
+  ::selection {
+    background-color: var(--chirpie-accent);
+    color: var(--chirpie-accent-foreground);
+  }
+}
+
+/* ─── Utility classes ─────────────────────────────────────────────────────── */
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  .bubble-shadow {
+    box-shadow: 0 2px 12px 0 var(--chirpie-shadow);
+  }
+
+  .card-shadow {
+    box-shadow: 4px 5px 0px 0px var(--chirpie-border);
+  }
+
+  .thread-bg {
+    background-color: var(--chirpie-background);
+  }
+}
+
+/* ─── Typing indicator dots ───────────────────────────────────────────────── */
+.typing-dot:nth-child(1) { animation-delay: 0ms; }
+.typing-dot:nth-child(2) { animation-delay: 160ms; }
+.typing-dot:nth-child(3) { animation-delay: 320ms; }
+
+/* ─── Cloud SVG filter for softness ──────────────────────────────────────── */
+.cloud-blur {
+  filter: blur(0.5px);
+}
+
+/* ─── Phone mockup glass ──────────────────────────────────────────────────── */
+.phone-glass {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
