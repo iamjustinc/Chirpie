@@ -67,9 +67,10 @@ type DemoMode = "mock" | "loading" | "live" | "error";
 interface ModeBadgeProps {
   mode: DemoMode;
   onTryLive: () => void;
+  isAIGenerated?: boolean;
 }
 
-function ModeBadge({ mode, onTryLive }: ModeBadgeProps) {
+function ModeBadge({ mode, onTryLive, isAIGenerated }: ModeBadgeProps) {
   if (mode === "mock") {
     return (
       <motion.button
@@ -106,25 +107,41 @@ function ModeBadge({ mode, onTryLive }: ModeBadgeProps) {
   }
 
   if (mode === "live") {
+    if (isAIGenerated) {
+      // Real Claude response — show the full "Live AI" indicator
+      return (
+        <div
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-pill text-xs font-semibold"
+          style={{
+            backgroundColor: "var(--chirpie-primary)",
+            color: "var(--chirpie-primary-foreground)",
+          }}
+        >
+          <span className="relative flex h-2 w-2">
+            <span
+              className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
+              style={{ backgroundColor: "var(--chirpie-primary-foreground)" }}
+            />
+            <span
+              className="relative inline-flex rounded-full h-2 w-2"
+              style={{ backgroundColor: "var(--chirpie-primary-foreground)" }}
+            />
+          </span>
+          Live AI
+        </div>
+      );
+    }
+    // Sanitized fallback (no API key, timeout, or API error)
     return (
       <div
-        className="flex items-center gap-1.5 px-2.5 py-1 rounded-pill text-xs font-semibold"
+        className="flex items-center gap-1.5 px-2.5 py-1 rounded-pill text-xs font-semibold border"
         style={{
-          backgroundColor: "var(--chirpie-primary)",
-          color: "var(--chirpie-primary-foreground)",
+          backgroundColor: "var(--chirpie-card)",
+          color: "var(--chirpie-muted-foreground)",
+          borderColor: "var(--chirpie-border)",
         }}
       >
-        <span className="relative flex h-2 w-2">
-          <span
-            className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
-            style={{ backgroundColor: "var(--chirpie-primary-foreground)" }}
-          />
-          <span
-            className="relative inline-flex rounded-full h-2 w-2"
-            style={{ backgroundColor: "var(--chirpie-primary-foreground)" }}
-          />
-        </span>
-        Live AI
+        Chirpie response
       </div>
     );
   }
@@ -217,6 +234,7 @@ export default function DemoPage() {
   // ── Mode & digest state ────────────────────────────────────────────────────
   const [mode, setMode] = useState<DemoMode>("mock");
   const [timedOut, setTimedOut] = useState(false);
+  const [isAIGenerated, setIsAIGenerated] = useState(false);
   const [currentDigest, setCurrentDigest] = useState<Digest>(() =>
     buildMockDigestForCategory(activeCategory, greeting, mockIntro)
   );
@@ -239,12 +257,13 @@ export default function DemoPage() {
           setMode("error");
           return;
         }
-        const { story, timedOut: didTimeout } = await fetchStoryTransform(
+        const { story, timedOut: didTimeout, isAIGenerated: aiGenerated } = await fetchStoryTransform(
           rawStory,
           apiTone,
           `live-${cat}`
         );
         setTimedOut(didTimeout);
+        setIsAIGenerated(aiGenerated);
         const uiCat = contentCategoryToUICategory(cat);
         const liveIntro = didTimeout
           ? "showing a quick version for now — sources are a bit slow."
@@ -270,13 +289,14 @@ export default function DemoPage() {
       return;
     }
 
-    const { story, timedOut: didTimeout } = await fetchStoryTransform(
+    const { story, timedOut: didTimeout, isAIGenerated: aiGenerated } = await fetchStoryTransform(
       rawStory,
       apiTone,
       `live-${activeCategory}`
     );
 
     setTimedOut(didTimeout);
+    setIsAIGenerated(aiGenerated);
 
     const liveGreeting = greeting;
     const liveIntro = didTimeout
@@ -331,7 +351,7 @@ export default function DemoPage() {
         </div>
 
         <div className="flex items-center gap-3 flex-shrink-0">
-          <ModeBadge mode={mode} onTryLive={handleTryLive} />
+          <ModeBadge mode={mode} onTryLive={handleTryLive} isAIGenerated={isAIGenerated} />
           <ThemeSwitcher size="sm" />
           <motion.div whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }}>
             <Link

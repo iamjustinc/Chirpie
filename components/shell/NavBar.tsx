@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { motion } from "framer-motion";
 import { ThemeSwitcher } from "@/components/theme/ThemeSwitcher";
@@ -20,7 +21,7 @@ export function PublicNav() {
       <div className="max-w-5xl mx-auto flex items-center justify-between h-16">
         {/* Logo */}
         <Link href="/" className="flex items-center gap-1.5 group">
-          <span className="text-xl">🐦</span>
+          <Image src="/chirpie-logo.png" alt="Chirpie" width={24} height={24} className="object-contain" />
           <span
             className="font-bold text-lg tracking-tight"
             style={{ color: "var(--chirpie-foreground)" }}
@@ -71,7 +72,7 @@ export function AppNav() {
       <div className="max-w-2xl mx-auto flex items-center justify-between px-4 h-14">
         {/* Logo */}
         <Link href="/digest" className="flex items-center gap-1.5">
-          <span className="text-lg">🐦</span>
+          <Image src="/chirpie-logo.png" alt="Chirpie" width={22} height={22} className="object-contain" />
           <span className="font-bold text-base tracking-tight text-foreground">
             Chirpie
           </span>

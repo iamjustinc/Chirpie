@@ -5,9 +5,11 @@ import type { Digest } from "@/lib/types";
 
 interface DigestIntroMessageProps {
   digest: Digest;
+  /** When false, hides the "Today's stories" divider — useful in guided/topic-selection mode. */
+  showDivider?: boolean;
 }
 
-export function DigestIntroMessage({ digest }: DigestIntroMessageProps) {
+export function DigestIntroMessage({ digest, showDivider = true }: DigestIntroMessageProps) {
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "long",
     month: "long",
@@ -59,41 +61,45 @@ export function DigestIntroMessage({ digest }: DigestIntroMessageProps) {
         </div>
       </motion.div>
 
-      {/* Intro message bubble */}
-      <motion.div
-        initial={{ opacity: 0, y: 14 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.45, delay: 0.3, ease: [0.22, 1, 0.36, 1] }}
-        className="flex items-end gap-2.5 pl-10"
-      >
-        <div
-          className="px-4 py-3 rounded-2xl rounded-bl-sm max-w-[88%]"
-          style={{
-            backgroundColor: "var(--chirpie-bubble-assistant)",
-            color: "var(--chirpie-bubble-assistant-foreground)",
-            boxShadow: "0 3px 14px 0 var(--chirpie-shadow)",
-          }}
+      {/* Intro message bubble — only shown when intro text is present */}
+      {digest.intro && (
+        <motion.div
+          initial={{ opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.45, delay: 0.3, ease: [0.22, 1, 0.36, 1] }}
+          className="flex items-end gap-2.5 pl-10"
         >
-          <p className="text-sm leading-relaxed">{digest.intro}</p>
-        </div>
-      </motion.div>
+          <div
+            className="px-4 py-3 rounded-2xl rounded-bl-sm max-w-[88%]"
+            style={{
+              backgroundColor: "var(--chirpie-bubble-assistant)",
+              color: "var(--chirpie-bubble-assistant-foreground)",
+              boxShadow: "0 3px 14px 0 var(--chirpie-shadow)",
+            }}
+          >
+            <p className="text-sm leading-relaxed">{digest.intro}</p>
+          </div>
+        </motion.div>
+      )}
 
-      {/* Divider */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.5 }}
-        className="flex items-center gap-3 px-1 py-1"
-      >
-        <div className="flex-1 h-px" style={{ backgroundColor: "var(--chirpie-border)" }} />
-        <span
-          className="text-[10px] font-medium uppercase tracking-widest"
-          style={{ color: "var(--chirpie-muted-foreground)" }}
+      {/* Divider — hidden in guided/topic-selection mode */}
+      {showDivider && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.5 }}
+          className="flex items-center gap-3 px-1 py-1"
         >
-          Today's stories
-        </span>
-        <div className="flex-1 h-px" style={{ backgroundColor: "var(--chirpie-border)" }} />
-      </motion.div>
+          <div className="flex-1 h-px" style={{ backgroundColor: "var(--chirpie-border)" }} />
+          <span
+            className="text-[10px] font-medium uppercase tracking-widest"
+            style={{ color: "var(--chirpie-muted-foreground)" }}
+          >
+            Today's stories
+          </span>
+          <div className="flex-1 h-px" style={{ backgroundColor: "var(--chirpie-border)" }} />
+        </motion.div>
+      )}
     </div>
   );
 }

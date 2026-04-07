@@ -23,6 +23,8 @@ export interface FetchStoryResult {
   story: Story;
   /** True when the request hit the 10s timeout — caller can show a soft notice. */
   timedOut: boolean;
+  /** True when Claude actually processed this story (not a mock/fallback). */
+  isAIGenerated: boolean;
 }
 
 /**
@@ -42,6 +44,7 @@ export async function fetchStoryTransform(
 
   let rawOutput: unknown = {};
   let timedOut = false;
+  let isAIGenerated = false;
 
   try {
     const fetchPromise = fetch("/api/transform", {
@@ -62,6 +65,8 @@ export async function fetchStoryTransform(
     }
 
     rawOutput = await response.json();
+    // Check if the server used real Claude (not a mock/fallback path)
+    isAIGenerated = (rawOutput as Record<string, unknown>)._source === "ai";
   } catch (err) {
     if (err instanceof Error && err.message === "chirpie_timeout") {
       timedOut = true;
@@ -76,5 +81,5 @@ export async function fetchStoryTransform(
   const sanitized = sanitizeTransformOutput(rawOutput, rawStory);
   const story = transformOutputToStory(sanitized, rawStory, apiTone, storyId);
 
-  return { story, timedOut };
+  return { story, timedOut, isAIGenerated };
 }

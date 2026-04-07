@@ -19,6 +19,12 @@ interface Message {
   timestamp: string;
 }
 
+interface TopicOption {
+  id: Category;
+  label: string;
+  icon: string;
+}
+
 interface ConversationThreadProps {
   digest: Digest;
   /**
@@ -31,6 +37,14 @@ interface ConversationThreadProps {
    * appear in the thread after a story. Not the same as the category switcher.
    */
   storyCategory?: Category;
+  /**
+   * When provided, the thread opens in guided topic-selection mode:
+   * Chirpie greets the user, asks what they want to talk about, and shows
+   * these chips. Selecting one calls onTopicSelect and the parent provides
+   * an updated digest with items.
+   */
+  topicOptions?: TopicOption[];
+  onTopicSelect?: (category: Category) => void;
 }
 
 // ─── End-of-digest prompts ────────────────────────────────────────────────────
@@ -94,8 +108,15 @@ export function ConversationThread({
   digest,
   pacedMode = false,
   storyCategory,
+  topicOptions,
+  onTopicSelect,
 }: ConversationThreadProps) {
   const totalItems = digest.items.length;
+
+  // ── Guided topic-selection mode ─────────────────────────────────────────────
+  const isGuidedMode = !!(topicOptions?.length && onTopicSelect);
+  const [topicChosen, setTopicChosen] = useState(false);
+  const [topicMessage, setTopicMessage] = useState("");
 
   // In paced mode start with 1 revealed; in normal mode reveal all immediately
   const [revealedCount, setRevealedCount] = useState(pacedMode ? 1 : totalItems);
@@ -105,20 +126,32 @@ export function ConversationThread({
   const [showEndPrompts, setShowEndPrompts] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Reset pacing when the digest changes (e.g. category switch or live/mock toggle)
+  // Reset state when digest identity changes (category/mode switch, or new topic story arrives)
   useEffect(() => {
-    setRevealedCount(pacedMode ? 1 : digest.items.length);
+    setRevealedCount(pacedMode ? Math.min(1, digest.items.length) : digest.items.length);
     setExtraMessages([]);
+    setTopicChosen(false);
+    setTopicMessage("");
+    setIsTyping(false);
     setShowEndPrompts(false);
-  }, [digest.id, pacedMode, digest.items.length]);
+  }, [digest.id, pacedMode]);
 
-  // Show end-of-digest prompts once all stories are visible
+  // When a topic was selected and the parent provides a new digest with items → stop typing
+  useEffect(() => {
+    if (topicChosen && digest.items.length > 0 && isTyping) {
+      const t = setTimeout(() => setIsTyping(false), 300);
+      return () => clearTimeout(t);
+    }
+  }, [topicChosen, digest.items.length, isTyping]);
+
+  // Show end-of-digest prompts once all stories are visible (skip for empty guided digest)
   useEffect(() => {
     const allRevealed = revealedCount >= totalItems;
     if (!allRevealed) return;
+    if (isGuidedMode && totalItems === 0) return; // don't show end prompts before topic selected
     const t = setTimeout(() => setShowEndPrompts(true), 2500);
     return () => clearTimeout(t);
-  }, [revealedCount, totalItems]);
+  }, [revealedCount, totalItems, isGuidedMode]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -126,6 +159,14 @@ export function ConversationThread({
 
   // Staged status text shown below TypingIndicator
   const stagedStatus = useStagedStatus(isTyping);
+
+  // Called when user taps a topic chip in guided mode
+  function handleTopicChipSelect(option: TopicOption) {
+    setTopicChosen(true);
+    setTopicMessage(`let's talk about ${option.label.toLowerCase()}`);
+    setIsTyping(true);
+    onTopicSelect?.(option.id);
+  }
 
   function handleFollowUp(prompt: string) {
     submitMessage(prompt);
@@ -183,7 +224,82 @@ export function ConversationThread({
       {/* Thread scroll area */}
       <div className="flex-1 overflow-y-auto scrollbar-hide px-4 py-6 space-y-5">
         {/* Intro */}
-        <DigestIntroMessage digest={digest} />
+        <DigestIntroMessage digest={digest} showDivider={!isGuidedMode || totalItems > 0} />
+
+        {/* ── Guided topic-selection phase ────────────────────────────────── */}
+        {isGuidedMode && totalItems === 0 && (
+          <>
+            {/* "What would you like to talk about?" bubble + topic chips */}
+            <AnimatePresence>
+              {!topicChosen && (
+                <motion.div
+                  initial={{ opacity: 0, y: 14 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.45, delay: 0.55, ease: [0.22, 1, 0.36, 1] }}
+                  className="flex items-start gap-2.5"
+                >
+                  <div
+                    className="w-7 h-7 rounded-full flex items-center justify-center text-sm flex-shrink-0 mt-1"
+                    style={{ backgroundColor: "var(--chirpie-muted)" }}
+                    aria-hidden="true"
+                  >
+                    🐦
+                  </div>
+                  <div
+                    className="px-4 py-3 rounded-2xl rounded-bl-sm"
+                    style={{
+                      backgroundColor: "var(--chirpie-bubble-assistant)",
+                      color: "var(--chirpie-bubble-assistant-foreground)",
+                      boxShadow: "0 3px 14px 0 var(--chirpie-shadow)",
+                    }}
+                  >
+                    <p className="text-sm mb-3">what would you like to talk about today?</p>
+                    <div className="flex flex-wrap gap-2">
+                      {topicOptions!.map((opt) => (
+                        <button
+                          key={opt.id}
+                          onClick={() => handleTopicChipSelect(opt)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-pill border text-xs font-medium transition-all hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          style={{
+                            backgroundColor: "var(--chirpie-chip)",
+                            color: "var(--chirpie-chip-foreground)",
+                            borderColor: "var(--chirpie-border)",
+                          }}
+                        >
+                          <span>{opt.icon}</span>
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* User's topic message */}
+            {topicChosen && topicMessage && (
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+                className="flex justify-end"
+              >
+                <div
+                  className="max-w-[75%] px-4 py-2.5 text-sm leading-relaxed"
+                  style={{
+                    backgroundColor: "var(--chirpie-bubble-user)",
+                    color: "var(--chirpie-bubble-user-foreground)",
+                    borderRadius: "1rem 1rem 0.25rem 1rem",
+                    boxShadow: "0 3px 14px 0 var(--chirpie-shadow)",
+                  }}
+                >
+                  {topicMessage}
+                </div>
+              </motion.div>
+            )}
+          </>
+        )}
 
         {/* Stories — revealed progressively in paced mode */}
         {visibleItems.map((item, i) => (

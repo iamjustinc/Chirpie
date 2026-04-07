@@ -120,7 +120,7 @@ export default function AccountPage() {
           </div>
           <div className="flex-1">
             <p className="font-semibold text-foreground">
-              {prefs.name || "Your account"}
+              {prefs.name || prefs.email?.split("@")[0] || "Your account"}
             </p>
             {prefs.email && (
               <p className="text-sm text-muted-foreground">{prefs.email}</p>

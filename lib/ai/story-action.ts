@@ -35,7 +35,7 @@ export interface StoryActionOutput {
 
 // ─── Model config ─────────────────────────────────────────────────────────────
 
-const MODEL = "claude-opus-4-5";
+const MODEL = "claude-3-5-haiku-20241022";
 const MAX_TOKENS = 200; // Actions are short — cap tightly
 
 // ─── Fallback derivation ──────────────────────────────────────────────────────

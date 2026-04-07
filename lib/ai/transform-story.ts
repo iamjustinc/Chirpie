@@ -28,7 +28,7 @@ import { CHIRPIE_TRANSFORM_SYSTEM_PROMPT } from "./prompts/chirpie-transform-sys
 
 // ─── Model config ─────────────────────────────────────────────────────────────
 
-const MODEL = "claude-opus-4-5";
+const MODEL = "claude-3-5-sonnet-20241022";
 const MAX_TOKENS = 1024;
 
 // ─── Mock fallback ────────────────────────────────────────────────────────────
@@ -127,7 +127,7 @@ function tryParse(raw: string): ParseResult {
 
 export async function transformStory(
   rawInput: TransformInput
-): Promise<TransformOutput> {
+): Promise<TransformOutput & { _source: "ai" | "mock" }> {
   // Do NOT re-parse here — route.ts already ran TransformInputSchema.parse()
   // before calling this function. A second unguarded parse would turn any
   // edge-case ZodError into a 500 instead of the 400 it deserves.
@@ -142,7 +142,7 @@ export async function transformStory(
     console.warn(
       "[Chirpie] ANTHROPIC_API_KEY not configured — returning deterministic mock output"
     );
-    return buildMockOutput(input);
+    return { ...buildMockOutput(input), _source: "mock" };
   }
 
   // Run gravity check before calling Claude
@@ -170,7 +170,7 @@ export async function transformStory(
   const firstResult = tryParse(rawOutput);
 
   if (firstResult.success) {
-    return firstResult.data;
+    return { ...firstResult.data, _source: "ai" };
   }
 
   // ── Repair attempt ─────────────────────────────────────────────────────────
@@ -193,7 +193,7 @@ export async function transformStory(
   const repairResult = tryParse(repairedOutput);
 
   if (repairResult.success) {
-    return repairResult.data;
+    return { ...repairResult.data, _source: "ai" };
   }
 
   // Both attempts failed — surface a clean error (route.ts will catch it)
