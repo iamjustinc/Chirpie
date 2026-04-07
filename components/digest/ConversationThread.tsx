@@ -2,11 +2,15 @@
 
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Mic } from "lucide-react";
+import { Send } from "lucide-react";
 import type { Digest } from "@/lib/types";
+import type { Category } from "@/lib/types";
 import { DigestIntroMessage } from "./DigestIntroMessage";
 import { StoryBubble } from "./StoryBubble";
 import { TypingIndicator } from "./TypingIndicator";
+import { useStagedStatus } from "@/lib/hooks/use-staged-status";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Message {
   id: string;
@@ -17,31 +21,122 @@ interface Message {
 
 interface ConversationThreadProps {
   digest: Digest;
+  /**
+   * When true, reveals digest items one at a time with contextual follow-up
+   * prompts between each story instead of rendering all items at once.
+   */
+  pacedMode?: boolean;
+  /**
+   * The active UI category — drives which contextual continuation prompts
+   * appear in the thread after a story. Not the same as the category switcher.
+   */
+  storyCategory?: Category;
 }
+
+// ─── End-of-digest prompts ────────────────────────────────────────────────────
 
 const endOfDigestPrompts = [
   "Want a deeper look at any of these?",
   "Catch me tomorrow morning?",
 ];
 
-export function ConversationThread({ digest }: ConversationThreadProps) {
+// ─── Contextual in-thread continuation prompts ────────────────────────────────
+// These appear after the lead story and are conversational continuations,
+// NOT a duplicate of the top-level category switcher.
+
+const CONTEXTUAL_PROMPTS: Partial<Record<Category, [string, string, string]>> = {
+  "pop-culture": [
+    "what's the backstory?",
+    "another pop update",
+    "what are fans saying?",
+  ],
+  finance: [
+    "market angle?",
+    "company context?",
+    "consumer impact?",
+  ],
+  technology: [
+    "product details?",
+    "why does this matter?",
+    "what's next for this?",
+  ],
+  general: [
+    "quick recap?",
+    "broader context?",
+    "key takeaway?",
+  ],
+  world: [
+    "regional context?",
+    "who's involved?",
+    "global reaction?",
+  ],
+  sports: [
+    "player breakdown?",
+    "what's the impact?",
+    "who won?",
+  ],
+};
+
+const DEFAULT_CONTEXTUAL_PROMPTS: [string, string, string] = [
+  "tell me more",
+  "why does this matter?",
+  "what's next?",
+];
+
+function getContextualPrompts(category: Category | undefined): [string, string, string] {
+  if (!category) return DEFAULT_CONTEXTUAL_PROMPTS;
+  return CONTEXTUAL_PROMPTS[category] ?? DEFAULT_CONTEXTUAL_PROMPTS;
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
+export function ConversationThread({
+  digest,
+  pacedMode = false,
+  storyCategory,
+}: ConversationThreadProps) {
+  const totalItems = digest.items.length;
+
+  // In paced mode start with 1 revealed; in normal mode reveal all immediately
+  const [revealedCount, setRevealedCount] = useState(pacedMode ? 1 : totalItems);
   const [extraMessages, setExtraMessages] = useState<Message[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const [input, setInput] = useState("");
   const [showEndPrompts, setShowEndPrompts] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Show end-of-digest prompts after stories render
+  // Reset pacing when the digest changes (e.g. category switch or live/mock toggle)
   useEffect(() => {
+    setRevealedCount(pacedMode ? 1 : digest.items.length);
+    setExtraMessages([]);
+    setShowEndPrompts(false);
+  }, [digest.id, pacedMode, digest.items.length]);
+
+  // Show end-of-digest prompts once all stories are visible
+  useEffect(() => {
+    const allRevealed = revealedCount >= totalItems;
+    if (!allRevealed) return;
     const t = setTimeout(() => setShowEndPrompts(true), 2500);
     return () => clearTimeout(t);
-  }, []);
+  }, [revealedCount, totalItems]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [extraMessages, isTyping]);
+  }, [extraMessages, isTyping, revealedCount]);
+
+  // Staged status text shown below TypingIndicator
+  const stagedStatus = useStagedStatus(isTyping);
 
   function handleFollowUp(prompt: string) {
+    submitMessage(prompt);
+  }
+
+  // Called when user taps a contextual continuation chip in paced mode.
+  // Submits the prompt text as a message AND reveals the next digest item if available.
+  function handleContextualPrompt(prompt: string) {
+    if (revealedCount < totalItems) {
+      setRevealedCount((c) => c + 1);
+    }
     submitMessage(prompt);
   }
 
@@ -60,7 +155,6 @@ export function ConversationThread({ digest }: ConversationThreadProps) {
     setIsTyping(true);
     setShowEndPrompts(false);
 
-    // Simulate Chirpie's response
     setTimeout(() => {
       setIsTyping(false);
       const reply: Message = {
@@ -78,6 +172,12 @@ export function ConversationThread({ digest }: ConversationThreadProps) {
     submitMessage(input);
   }
 
+  const visibleItems = digest.items.slice(0, revealedCount);
+  const allRevealed = revealedCount >= totalItems;
+  // Show contextual prompts after the lead story, only in paced mode, only when not all revealed
+  const showContextualPrompts = pacedMode && !allRevealed && extraMessages.length === 0;
+  const contextualPrompts = getContextualPrompts(storyCategory);
+
   return (
     <div className="flex flex-col h-full">
       {/* Thread scroll area */}
@@ -85,17 +185,63 @@ export function ConversationThread({ digest }: ConversationThreadProps) {
         {/* Intro */}
         <DigestIntroMessage digest={digest} />
 
-        {/* Stories */}
-        {digest.items.map((item, i) => (
+        {/* Stories — revealed progressively in paced mode */}
+        {visibleItems.map((item, i) => (
           <StoryBubble
             key={item.id}
             story={item.story}
-            delay={0.5 + i * 0.35}
+            delay={i === 0 ? 0.5 : 0.2}
             onFollowUp={handleFollowUp}
           />
         ))}
 
-        {/* End-of-digest prompts */}
+        {/* Contextual continuation prompts (paced mode, after lead story) */}
+        <AnimatePresence>
+          {showContextualPrompts && (
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.4, delay: 0.6 }}
+              className="flex items-start gap-2.5"
+            >
+              <div
+                className="w-7 h-7 rounded-full flex items-center justify-center text-sm flex-shrink-0 mt-1"
+                style={{ backgroundColor: "var(--chirpie-muted)" }}
+              >
+                🐦
+              </div>
+              <div
+                className="px-4 py-3 rounded-2xl rounded-bl-sm text-sm"
+                style={{
+                  backgroundColor: "var(--chirpie-bubble-assistant)",
+                  color: "var(--chirpie-bubble-assistant-foreground)",
+                  boxShadow: "0 3px 14px 0 var(--chirpie-shadow)",
+                }}
+              >
+                <p>want to go deeper on this one?</p>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {contextualPrompts.map((p) => (
+                    <button
+                      key={p}
+                      onClick={() => handleContextualPrompt(p)}
+                      className="px-3 py-1 rounded-pill border text-xs font-medium transition-all hover:opacity-80"
+                      style={{
+                        backgroundColor: "var(--chirpie-chip)",
+                        color: "var(--chirpie-chip-foreground)",
+                        borderColor: "var(--chirpie-border)",
+                      }}
+                    >
+                      {p}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* End-of-digest prompts (once all stories revealed) */}
         <AnimatePresence>
           {showEndPrompts && (
             <motion.div
@@ -182,9 +328,28 @@ export function ConversationThread({ digest }: ConversationThreadProps) {
           ))}
         </AnimatePresence>
 
-        {/* Typing indicator */}
+        {/* Typing indicator + staged status text */}
         <AnimatePresence>
-          {isTyping && <TypingIndicator />}
+          {isTyping && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="space-y-1.5"
+            >
+              <TypingIndicator />
+              <motion.p
+                key={stagedStatus}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.4 }}
+                className="text-[11px] pl-9"
+                style={{ color: "var(--chirpie-muted-foreground)" }}
+              >
+                {stagedStatus}
+              </motion.p>
+            </motion.div>
+          )}
         </AnimatePresence>
 
         <div ref={bottomRef} />
@@ -236,14 +401,23 @@ export function ConversationThread({ digest }: ConversationThreadProps) {
 function getMockReply(prompt: string): string {
   const p = prompt.toLowerCase();
 
-  if (p.includes("fed") || p.includes("rate") || p.includes("interest")) {
+  if (p.includes("fed") || p.includes("rate") || p.includes("interest") || p.includes("market angle") || p.includes("consumer impact")) {
     return "A rate hold means the Fed is keeping borrowing costs where they are — expensive. The hope was for a cut to ease mortgage and loan rates, but inflation in services is still sticky. Next decision is in about six weeks.";
   }
-  if (p.includes("beyoncé") || p.includes("album") || p.includes("music")) {
+  if (p.includes("beyoncé") || p.includes("album") || p.includes("music") || p.includes("fans") || p.includes("pop")) {
     return "The album blends country, R&B, and orchestral pop — it's a genre statement as much as a music release. No traditional promo cycle, which made the surprise drop hit even harder. Three visual films are rolling out through the week.";
   }
-  if (p.includes("climate") || p.includes("agreement") || p.includes("binding")) {
+  if (p.includes("climate") || p.includes("agreement") || p.includes("binding") || p.includes("broader context")) {
     return "Binding means countries that miss targets face trade consequences — tariffs, restricted market access. That's different from past agreements where failure had no real penalty. The first review period is 2027, so we'll see if it holds.";
+  }
+  if (p.includes("gpt") || p.includes("openai") || p.includes("ai") || p.includes("product details") || p.includes("what's next for")) {
+    return "GPT-5 combines text, voice, and live video in one model — no switching between modes. The main unlock is real-time vision: you can point your camera at something and ask questions live. It's in rollout for Plus subscribers starting today.";
+  }
+  if (p.includes("backstory") || p.includes("company context") || p.includes("who's involved")) {
+    return "Good question — the background here is the key context. Once the live AI layer is fully connected, I'll give you a real deep-dive. For now, the source links in each story are your best next step.";
+  }
+  if (p.includes("recap") || p.includes("key takeaway") || p.includes("why does this matter")) {
+    return "The short version: this one has real downstream effects. I'd dig into that with you — once the live AI layer is connected, I'll give you a full breakdown. The source links are a good starting point.";
   }
   if (p.includes("deeper") || p.includes("more")) {
     return "Sure — which story do you want to explore further? The climate summit, the Fed decision, or the Beyoncé album drop?";

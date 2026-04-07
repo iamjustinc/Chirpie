@@ -10,6 +10,7 @@ import { useTheme } from "@/components/theme/ThemeProvider";
 import { mockDigest } from "@/lib/mock-data";
 import { StoryBubble } from "@/components/digest/StoryBubble";
 import { cn } from "@/lib/utils";
+import { saveUserPrefs } from "@/lib/user-prefs";
 
 // ─── Step config ──────────────────────────────────────────────────────────────
 
@@ -109,6 +110,7 @@ export function OnboardingStepper() {
   }
 
   function finish() {
+    saveUserPrefs(prefs);
     router.push("/digest");
   }
 
