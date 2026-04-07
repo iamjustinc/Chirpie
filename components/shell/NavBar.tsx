@@ -20,14 +20,9 @@ export function PublicNav() {
     <nav className="fixed top-0 left-0 right-0 z-50 px-4 sm:px-6">
       <div className="max-w-5xl mx-auto flex items-center justify-between h-16">
         {/* Logo */}
-        <Link href="/" className="flex items-center gap-1.5 group">
-          <Image src="/chirpie-logo.png" alt="Chirpie" width={24} height={24} className="object-contain" />
-          <span
-            className="font-bold text-lg tracking-tight"
-            style={{ color: "var(--chirpie-foreground)" }}
-          >
-            Chirpie
-          </span>
+        <Link href="/" className="flex items-center group">
+          {/* Logo includes wordmark — no separate text needed */}
+          <Image src="/chirpie-logo.png" alt="Chirpie" width={110} height={44} className="h-11 w-auto object-contain" />
         </Link>
 
         {/* Actions */}
@@ -71,11 +66,9 @@ export function AppNav() {
     >
       <div className="max-w-2xl mx-auto flex items-center justify-between px-4 h-14">
         {/* Logo */}
-        <Link href="/digest" className="flex items-center gap-1.5">
-          <Image src="/chirpie-logo.png" alt="Chirpie" width={22} height={22} className="object-contain" />
-          <span className="font-bold text-base tracking-tight text-foreground">
-            Chirpie
-          </span>
+        <Link href="/digest" className="flex items-center">
+          {/* Logo includes wordmark — no separate text needed */}
+          <Image src="/chirpie-logo.png" alt="Chirpie" width={96} height={38} className="h-9 w-auto object-contain" />
         </Link>
 
         {/* Nav links */}

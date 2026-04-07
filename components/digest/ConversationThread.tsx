@@ -25,6 +25,16 @@ interface TopicOption {
   icon: string;
 }
 
+/**
+ * A specific story suggestion chip (distinct from broad topic chips).
+ * The parent maintains the rawStory mapping; ConversationThread only needs
+ * id + label for rendering and passes id back via onStoryChipSelect.
+ */
+export interface StoryChip {
+  id: string;
+  label: string;
+}
+
 interface ConversationThreadProps {
   digest: Digest;
   /**
@@ -45,6 +55,13 @@ interface ConversationThreadProps {
    */
   topicOptions?: TopicOption[];
   onTopicSelect?: (category: Category) => void;
+  /**
+   * Specific story suggestion chips shown below topic chips.
+   * Populated async (usually from /api/story-suggestions) — appears once loaded.
+   * Selecting one calls onStoryChipSelect with the chip id.
+   */
+  storyChips?: StoryChip[];
+  onStoryChipSelect?: (id: string) => void;
 }
 
 // ─── End-of-digest prompts ────────────────────────────────────────────────────
@@ -110,6 +127,8 @@ export function ConversationThread({
   storyCategory,
   topicOptions,
   onTopicSelect,
+  storyChips,
+  onStoryChipSelect,
 }: ConversationThreadProps) {
   const totalItems = digest.items.length;
 
@@ -160,12 +179,20 @@ export function ConversationThread({
   // Staged status text shown below TypingIndicator
   const stagedStatus = useStagedStatus(isTyping);
 
-  // Called when user taps a topic chip in guided mode
+  // Called when user taps a broad topic chip in guided mode
   function handleTopicChipSelect(option: TopicOption) {
     setTopicChosen(true);
     setTopicMessage(`let's talk about ${option.label.toLowerCase()}`);
     setIsTyping(true);
     onTopicSelect?.(option.id);
+  }
+
+  // Called when user taps a specific story suggestion chip
+  function handleStoryChipSelect(chip: StoryChip) {
+    setTopicChosen(true);
+    setTopicMessage(chip.label); // label IS the message — "Fed holds rates"
+    setIsTyping(true);
+    onStoryChipSelect?.(chip.id);
   }
 
   function handleFollowUp(prompt: string) {
@@ -255,6 +282,8 @@ export function ConversationThread({
                     }}
                   >
                     <p className="text-sm mb-3">what would you like to talk about today?</p>
+
+                    {/* Row 1 — broad topic chips */}
                     <div className="flex flex-wrap gap-2">
                       {topicOptions!.map((opt) => (
                         <button
@@ -272,6 +301,40 @@ export function ConversationThread({
                         </button>
                       ))}
                     </div>
+
+                    {/* Row 2 — specific story suggestions (loaded async, animate in) */}
+                    <AnimatePresence>
+                      {storyChips && storyChips.length > 0 && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 6 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.35, delay: 0.1 }}
+                          className="flex flex-wrap gap-2 mt-2.5 pt-2.5 border-t"
+                          style={{ borderColor: "var(--chirpie-border)" }}
+                        >
+                          <span
+                            className="w-full text-[10px] font-semibold uppercase tracking-wider mb-0.5"
+                            style={{ color: "var(--chirpie-muted-foreground)" }}
+                          >
+                            Or pick a story
+                          </span>
+                          {storyChips.map((chip) => (
+                            <button
+                              key={chip.id}
+                              onClick={() => handleStoryChipSelect(chip)}
+                              className="px-3 py-1.5 rounded-pill border text-xs font-medium transition-all hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              style={{
+                                backgroundColor: "var(--chirpie-background)",
+                                color: "var(--chirpie-foreground)",
+                                borderColor: "var(--chirpie-border)",
+                              }}
+                            >
+                              {chip.label}
+                            </button>
+                          ))}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
                 </motion.div>
               )}

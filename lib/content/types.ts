@@ -35,6 +35,11 @@ export interface RawStory {
   priority?: number;
   /** Pre-flagged high-gravity stories skip the gravity-check heuristic. */
   isHighGravity?: boolean;
+  /**
+   * Short label used on suggestion chips (≤ 35 chars).
+   * Computed automatically from the headline if omitted.
+   */
+  chipLabel?: string;
 }
 
 /**
