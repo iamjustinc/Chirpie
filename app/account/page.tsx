@@ -5,8 +5,8 @@ import { motion } from "framer-motion";
 import { AppShell } from "@/components/shell/AppShell";
 import { ThemeCardPicker } from "@/components/theme/ThemeSwitcher";
 import { useTheme } from "@/components/theme/ThemeProvider";
-import { mockUser } from "@/lib/mock-data";
 import type { Category, Tone, DigestFrequency, ThemeId, UserPreferences } from "@/lib/types";
+import { getFullUserPrefs, saveUserPrefs } from "@/lib/user-prefs";
 import { getCategoryLabel } from "@/lib/utils";
 import { Check, LogOut, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -74,7 +74,11 @@ function Pill<T extends string>({
 
 export default function AccountPage() {
   const { themeId, setTheme } = useTheme();
-  const [prefs, setPrefs] = useState<UserPreferences>({ ...mockUser, themeId });
+  // Initialise from localStorage — overrides theme with the ThemeProvider's live value
+  const [prefs, setPrefs] = useState<UserPreferences>(() => ({
+    ...getFullUserPrefs(),
+    themeId,
+  }));
   const [saved, setSaved] = useState(false);
 
   function toggleInterest(cat: Category) {
@@ -90,6 +94,7 @@ export default function AccountPage() {
 
   function handleSave() {
     setTheme(prefs.themeId);
+    saveUserPrefs(prefs);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   }
@@ -114,8 +119,12 @@ export default function AccountPage() {
             🐦
           </div>
           <div className="flex-1">
-            <p className="font-semibold text-foreground">{prefs.name}</p>
-            <p className="text-sm text-muted-foreground">{prefs.email}</p>
+            <p className="font-semibold text-foreground">
+              {prefs.name || "Your account"}
+            </p>
+            {prefs.email && (
+              <p className="text-sm text-muted-foreground">{prefs.email}</p>
+            )}
             <span
               className="inline-block mt-1 px-2 py-0.5 rounded-pill text-[10px] font-semibold uppercase tracking-wide"
               style={{

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Eye, EyeOff, ArrowRight, Check } from "lucide-react";
 import { HeroClouds } from "@/components/landing/HeroClouds";
+import { loadUserPrefs, saveUserPrefs } from "@/lib/user-prefs";
 
 export default function SignUpPage() {
   const router = useRouter();
@@ -22,6 +23,9 @@ export default function SignUpPage() {
     if (!passwordStrong) return;
     setLoading(true);
     await new Promise((r) => setTimeout(r, 1000));
+    // Persist identity so the rest of the app can personalize without auth
+    const existing = loadUserPrefs();
+    saveUserPrefs({ ...existing, name: name.trim(), email: email.trim() });
     router.push("/onboarding");
   }
 

@@ -10,7 +10,7 @@
  * Safe to call from SSR contexts — all localStorage access is guarded.
  */
 
-import type { UserPreferences, Tone } from "./types";
+import type { UserPreferences, Tone, ThemeId } from "./types";
 
 const STORAGE_KEY = "chirpie_user_prefs";
 
@@ -78,6 +78,31 @@ export function toneToApiTone(
     default:
       return "casual";
   }
+}
+
+// ─── Full preferences (with all required fields filled) ──────────────────────
+
+/**
+ * Returns a fully-populated UserPreferences object — every required field is
+ * present. Uses stored values where available, falls back to safe defaults.
+ *
+ * Use this in components that need UserPreferences (not Partial<>) — e.g.
+ * the Account page and anywhere that shows user identity in the UI.
+ */
+export function getFullUserPrefs(): UserPreferences {
+  const partial = loadUserPrefs();
+  return {
+    id: "user-local",
+    name: partial.name ?? "",
+    email: partial.email ?? "",
+    interests: partial.interests ?? (DEFAULT_USER_PREFS.interests as UserPreferences["interests"]) ?? ["general"],
+    tone: partial.tone ?? "casual",
+    frequency: partial.frequency ?? "daily",
+    themeId: (partial.themeId ?? "classic-chat") as ThemeId,
+    emojiLevel: partial.emojiLevel ?? "minimal",
+    punctuation: partial.punctuation ?? true,
+    digestLength: partial.digestLength ?? "medium",
+  };
 }
 
 // ─── Greeting copy ────────────────────────────────────────────────────────────

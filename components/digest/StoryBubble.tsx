@@ -6,6 +6,7 @@ import { Bookmark, Share2, ExternalLink, ChevronDown, ChevronUp } from "lucide-r
 import type { Story } from "@/lib/types";
 import { SourceButtons, SourceLine } from "./SourceButtons";
 import { FollowUpChips } from "./FollowUpChips";
+import { StoryActions } from "./StoryActions";
 import { cn, getCategoryColor, getCategoryLabel } from "@/lib/utils";
 
 interface StoryBubbleProps {
@@ -223,7 +224,10 @@ export function StoryBubble({ story, onFollowUp, delay = 0 }: StoryBubbleProps) 
           </div>
         </motion.div>
 
-        {/* Follow-up chips */}
+        {/* Story actions — Recap · Why it matters · Hear more · Read original */}
+        <StoryActions story={story} />
+
+        {/* Follow-up chips — conversational next steps */}
         {story.followUpPrompts.length > 0 && onFollowUp && (
           <FollowUpChips
             prompts={story.followUpPrompts}
