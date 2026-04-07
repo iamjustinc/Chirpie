@@ -1,59 +1,59 @@
 /**
  * get-live-demo-digest.ts
  *
- * Client-side fetch orchestrator for the live AI demo.
+ * Legacy parallel-fetch orchestrator — transforms multiple stories at once
+ * and returns a full Digest. Kept for backward compatibility.
  *
- * Calls POST /api/transform in parallel for all RAW_DEMO_FIXTURES, maps the
- * validated outputs to Story objects, and returns a fully-typed Digest ready
- * for ConversationThread.
- *
- * Throws on ANY failure — the demo page catches this and falls back to mockDigest.
+ * The primary demo path now uses fetchStoryTransform (single-story, paced)
+ * but this remains available for any full-digest use cases.
  */
 
-import type { TransformOutput } from "@/lib/ai/schemas/chirpie-transform";
-import { RAW_DEMO_FIXTURES, toTransformInput } from "@/lib/demo/raw-story-fixtures";
-import {
-  transformOutputToStory,
-  buildLiveDemoDigest,
-} from "@/lib/adapters/transform-to-story";
+import { getDemoStoriesForCategory } from "@/lib/content/get-demo-stories";
+import { normalizeToTransformInput } from "@/lib/content/normalize-story";
+import { sanitizeTransformOutput } from "@/lib/ai/sanitize-transform";
+import { transformOutputToStory, buildLiveDemoDigest } from "@/lib/adapters/transform-to-story";
 import type { Digest } from "@/lib/types";
+import type { RawStory } from "@/lib/content/types";
 
-// ─── Single story fetch ───────────────────────────────────────────────────────
+// ─── Single story fetch (with sanitizer, no timeout — use fetchStoryTransform for timeout) ─
 
-async function fetchTransformedStory(
-  fixture: (typeof RAW_DEMO_FIXTURES)[number],
-  index: number
-) {
+async function fetchTransformedStory(rawStory: RawStory, index: number) {
+  const input = normalizeToTransformInput(rawStory, "gen_z");
+
   const response = await fetch("/api/transform", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(toTransformInput(fixture)),
+    body: JSON.stringify(input),
   });
 
   if (!response.ok) {
     const errorBody = await response.text().catch(() => "(unreadable)");
     throw new Error(
-      `[Chirpie Demo] /api/transform failed for fixture "${fixture.label}" ` +
+      `[Chirpie Demo] /api/transform failed for "${rawStory.headline}" ` +
         `(${response.status}): ${errorBody}`
     );
   }
 
-  const output: TransformOutput = await response.json();
-
-  return transformOutputToStory(output, fixture, `live-story-${index}`);
+  const rawOutput: unknown = await response.json();
+  const sanitized = sanitizeTransformOutput(rawOutput, rawStory);
+  return transformOutputToStory(sanitized, rawStory, "gen_z", `live-story-${index}`);
 }
 
 // ─── Public orchestrator ──────────────────────────────────────────────────────
 
 /**
- * Transforms all demo fixtures in parallel and returns a live Digest.
+ * Transforms one story per major category in parallel and returns a full Digest.
  * Throws if any single transform fails — caller should catch and fallback.
  */
 export async function getLiveDemoDigest(): Promise<Digest> {
+  // Pull one lead story per category
+  const categories = ["pop_culture", "finance", "tech"] as const;
+  const rawStories = categories
+    .map((cat) => getDemoStoriesForCategory(cat, 1)[0])
+    .filter((s): s is RawStory => s != null);
+
   const stories = await Promise.all(
-    RAW_DEMO_FIXTURES.map((fixture, index) =>
-      fetchTransformedStory(fixture, index)
-    )
+    rawStories.map((story, index) => fetchTransformedStory(story, index))
   );
 
   return buildLiveDemoDigest(stories);
