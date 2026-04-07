@@ -57,11 +57,17 @@ interface ConversationThreadProps {
   onTopicSelect?: (category: Category) => void;
   /**
    * Specific story suggestion chips shown below topic chips.
-   * Populated async (usually from /api/story-suggestions) — appears once loaded.
+   * Populated from curated stories immediately; updated with live news async.
    * Selecting one calls onStoryChipSelect with the chip id.
    */
   storyChips?: StoryChip[];
   onStoryChipSelect?: (id: string) => void;
+  /**
+   * The next story to suggest after the user has seen one story.
+   * Shown in the post-story Chirpie bubble: "want to hear about X next?"
+   * When tapped, calls onStoryChipSelect with the chip id (reuses same handler).
+   */
+  nextSuggestionChip?: StoryChip;
 }
 
 // ─── End-of-digest prompts ────────────────────────────────────────────────────
@@ -129,6 +135,7 @@ export function ConversationThread({
   onTopicSelect,
   storyChips,
   onStoryChipSelect,
+  nextSuggestionChip,
 }: ConversationThreadProps) {
   const totalItems = digest.items.length;
 
@@ -251,7 +258,8 @@ export function ConversationThread({
       {/* Thread scroll area */}
       <div className="flex-1 overflow-y-auto scrollbar-hide px-4 py-6 space-y-5">
         {/* Intro */}
-        <DigestIntroMessage digest={digest} showDivider={!isGuidedMode || totalItems > 0} />
+        {/* Never show "Today's stories" divider in guided mode — keep it conversational */}
+        <DigestIntroMessage digest={digest} showDivider={!isGuidedMode} />
 
         {/* ── Guided topic-selection phase ────────────────────────────────── */}
         {isGuidedMode && totalItems === 0 && (
@@ -420,7 +428,7 @@ export function ConversationThread({
           )}
         </AnimatePresence>
 
-        {/* End-of-digest prompts (once all stories revealed) */}
+        {/* Post-story / end-of-digest Chirpie bubble */}
         <AnimatePresence>
           {showEndPrompts && (
             <motion.div
@@ -443,23 +451,61 @@ export function ConversationThread({
                   boxShadow: "0 3px 14px 0 var(--chirpie-shadow)",
                 }}
               >
-                <p>That's today's digest. Anything you want to dig into further?</p>
-                <div className="flex flex-wrap gap-2 mt-2">
-                  {endOfDigestPrompts.map((p) => (
-                    <button
-                      key={p}
-                      onClick={() => handleFollowUp(p)}
-                      className="px-3 py-1 rounded-pill border text-xs font-medium transition-all hover:opacity-80"
-                      style={{
-                        backgroundColor: "var(--chirpie-chip)",
-                        color: "var(--chirpie-chip-foreground)",
-                        borderColor: "var(--chirpie-border)",
-                      }}
-                    >
-                      {p}
-                    </button>
-                  ))}
-                </div>
+                {isGuidedMode && nextSuggestionChip ? (
+                  // ── Guided mode: companion-style suggestion ──────────────────
+                  <>
+                    <p className="mb-2">want to go deeper, or switch to something else?</p>
+                    <div className="flex flex-wrap gap-2">
+                      {/* 2 contextual deep-dive chips */}
+                      {contextualPrompts.slice(0, 2).map((p) => (
+                        <button
+                          key={p}
+                          onClick={() => handleContextualPrompt(p)}
+                          className="px-3 py-1 rounded-pill border text-xs font-medium transition-all hover:opacity-80"
+                          style={{
+                            backgroundColor: "var(--chirpie-chip)",
+                            color: "var(--chirpie-chip-foreground)",
+                            borderColor: "var(--chirpie-border)",
+                          }}
+                        >
+                          {p}
+                        </button>
+                      ))}
+                      {/* Next story suggestion — visually distinct with accent color */}
+                      <button
+                        onClick={() => handleStoryChipSelect(nextSuggestionChip)}
+                        className="px-3 py-1 rounded-pill text-xs font-semibold transition-all hover:opacity-80"
+                        style={{
+                          backgroundColor: "var(--chirpie-accent)",
+                          color: "var(--chirpie-accent-foreground)",
+                        }}
+                      >
+                        {nextSuggestionChip.label} →
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  // ── Normal mode: generic end-of-digest ──────────────────────
+                  <>
+                    <p>That&apos;s today&apos;s digest. Anything you want to dig into further?</p>
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {endOfDigestPrompts.map((p) => (
+                        <button
+                          key={p}
+                          onClick={() => handleFollowUp(p)}
+                          className="px-3 py-1 rounded-pill border text-xs font-medium transition-all hover:opacity-80"
+                          style={{
+                            backgroundColor: "var(--chirpie-chip)",
+                            color: "var(--chirpie-chip-foreground)",
+                            borderColor: "var(--chirpie-border)",
+                          }}
+                        >
+                          {p}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
             </motion.div>
           )}

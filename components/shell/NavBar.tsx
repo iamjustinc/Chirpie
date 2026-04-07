@@ -22,7 +22,7 @@ export function PublicNav() {
         {/* Logo */}
         <Link href="/" className="flex items-center group">
           {/* Logo includes wordmark — no separate text needed */}
-          <Image src="/chirpie-logo.png" alt="Chirpie" width={110} height={44} className="h-11 w-auto object-contain" />
+          <Image src="/chirpie-logo.png" alt="Chirpie" width={140} height={56} className="h-14 w-auto object-contain" />
         </Link>
 
         {/* Actions */}
@@ -68,7 +68,7 @@ export function AppNav() {
         {/* Logo */}
         <Link href="/digest" className="flex items-center">
           {/* Logo includes wordmark — no separate text needed */}
-          <Image src="/chirpie-logo.png" alt="Chirpie" width={96} height={38} className="h-9 w-auto object-contain" />
+          <Image src="/chirpie-logo.png" alt="Chirpie" width={120} height={48} className="h-12 w-auto object-contain" />
         </Link>
 
         {/* Nav links */}

@@ -2,6 +2,7 @@
 
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect } from "react";
+import Image from "next/image";
 import { landingPageChat } from "@/lib/mock-data";
 
 function TypingBubble() {
@@ -78,14 +79,17 @@ export function PhoneMockup() {
 
         {/* Chat header */}
         <div
-          className="flex items-center gap-2 px-4 py-2 border-b text-xs font-semibold"
-          style={{
-            borderColor: "var(--chirpie-border)",
-            color: "var(--chirpie-foreground)",
-          }}
+          className="flex items-center gap-2 px-4 py-2 border-b"
+          style={{ borderColor: "var(--chirpie-border)" }}
         >
-          <span className="text-base">🐦</span>
-          <span>Chirpie</span>
+          {/* Logo lockup — includes wordmark, no separate text needed */}
+          <Image
+            src="/chirpie-logo.png"
+            alt="Chirpie"
+            width={64}
+            height={26}
+            className="h-[22px] w-auto object-contain"
+          />
           <span
             className="ml-auto text-[9px] px-1.5 py-0.5 rounded-pill font-medium"
             style={{
