@@ -11,11 +11,19 @@
  *   - The API call fails or times out
  */
 
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
+
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type StoryActionType = "one_line_recap" | "why_it_matters" | "hear_more" | "follow_up";
+export type StoryActionType =
+  | "one_line_recap"
+  | "why_it_matters"
+  | "hear_more"
+  | "follow_up";
 
 export interface StoryActionInput {
   action: StoryActionType;
@@ -26,7 +34,6 @@ export interface StoryActionInput {
   tonePreference: "gen_z" | "professional" | "casual";
   isHighGravity?: boolean;
   sourceUrl?: string;
-  /** For follow_up actions — the user's specific question about the story */
   userQuestion?: string;
 }
 
@@ -37,40 +44,50 @@ export interface StoryActionOutput {
 
 // ─── Model config ─────────────────────────────────────────────────────────────
 
-const MODEL = "claude-3-5-haiku-20241022";
-const MAX_TOKENS = 200; // Actions are short — cap tightly
+const MODEL = "gpt-5-mini";
+const MAX_OUTPUT_TOKENS = 220;
 
 // ─── Fallback derivation ──────────────────────────────────────────────────────
-// Used when AI is unavailable. Derives from existing transformed story fields.
 
 function buildFallback(input: StoryActionInput): StoryActionOutput {
   switch (input.action) {
     case "one_line_recap": {
-      // First sentence of the chatOpening is usually a great summary
       const sentence = input.chatOpening.split(/(?<=[.!?])\s/)[0]?.trim();
       return { text: sentence ? sentence : input.headline };
     }
+
     case "why_it_matters":
       return { text: input.whyItMatters };
+
     case "hear_more":
       return {
         text: [input.chatOpening, input.keyPoints[0]].filter(Boolean).join(" "),
         sourceUrl: input.sourceUrl,
       };
+
     case "follow_up": {
-      // Answer from existing story fields — context-grounded, no placeholder copy
       const q = (input.userQuestion ?? "").toLowerCase();
+
       if (q.includes("why") || q.includes("matter") || q.includes("important")) {
         return { text: input.whyItMatters };
       }
-      if (q.includes("more") || q.includes("background") || q.includes("context") || q.includes("backstory")) {
+
+      if (
+        q.includes("more") ||
+        q.includes("background") ||
+        q.includes("context") ||
+        q.includes("backstory")
+      ) {
         const pts = input.keyPoints.filter(Boolean);
-        return { text: pts.length >= 2 ? `${pts[0]} ${pts[1]}` : input.chatOpening };
+        return {
+          text: pts.length >= 2 ? `${pts[0]} ${pts[1]}` : input.chatOpening,
+        };
       }
+
       if (q.includes("next") || q.includes("happen") || q.includes("now")) {
         return { text: input.keyPoints[2] ?? input.whyItMatters };
       }
-      // Default: first key point, which is the most concrete fact from the story
+
       return { text: input.keyPoints[0] ?? input.whyItMatters };
     }
   }
@@ -78,28 +95,68 @@ function buildFallback(input: StoryActionInput): StoryActionOutput {
 
 // ─── System prompt per action ─────────────────────────────────────────────────
 
-function buildSystemPrompt(action: StoryActionType, isHighGravity: boolean): string {
+function buildSystemPrompt(
+  action: StoryActionType,
+  isHighGravity: boolean
+): string {
   const toneRule = isHighGravity
     ? "Use neutral, factual, respectful tone. No emoji. No slang."
-    : "Match the tone_preference provided: gen_z = lowercase + casual slang + 1-2 emoji max; professional = formal, no emoji; casual = warm, conversational.";
+    : "Match the tone_preference provided: gen_z = lowercase + casual + 0-1 emoji max; professional = formal, no emoji; casual = warm and conversational.";
 
   const actionRule: Record<StoryActionType, string> = {
     one_line_recap:
-      "Write exactly ONE sentence, 12–18 words, capturing the single most important fact. No preamble. No context. Just the core fact.",
+      "Write exactly ONE sentence, 12–18 words, capturing the single most important fact. No preamble.",
     why_it_matters:
-      "Write 1–2 sentences explaining why this story matters to everyday people. Be concrete and specific, not abstract. Focus on real-world impact.",
+      "Write 1–2 sentences explaining why this story matters to everyday people. Be concrete and specific, not abstract.",
     hear_more:
-      "Write 3–4 sentences of additional context. Explain one piece of background that helps the reader understand this story better. Stay conversational and clear.",
+      "Write 3–4 sentences of additional context. Explain one piece of background that helps the reader understand this story better.",
     follow_up:
-      "The user has asked a follow-up question about this news story. Answer their specific question in 2–3 clear, grounded sentences using only information from the story context provided. Be direct and informative. Do not open with 'Okay so', 'Well,', 'Good question', or similar filler.",
+      "Answer the user's specific follow-up question in 2–3 clear, grounded sentences using only the story context provided. Be direct and informative. No filler.",
   };
 
   return [
     "You are Chirpie's story explanation engine.",
     toneRule,
     actionRule[action],
-    "Return ONLY the plain text response. No markdown. No bullet points. No headers. No JSON. No quotes around your response.",
+    "Return ONLY plain text.",
   ].join("\n\n");
+}
+
+// ─── OpenAI helper ────────────────────────────────────────────────────────────
+
+async function generateText(systemPrompt: string, userMessage: string): Promise<string> {
+  const response = await client.responses.create({
+    model: MODEL,
+    max_output_tokens: MAX_OUTPUT_TOKENS,
+    input: [
+      {
+        role: "system",
+        content: [
+          {
+            type: "input_text",
+            text: systemPrompt,
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "input_text",
+            text: userMessage,
+          },
+        ],
+      },
+    ],
+  });
+
+  const text = response.output_text?.trim();
+
+  if (!text) {
+    throw new Error("[Chirpie] OpenAI returned empty story action output");
+  }
+
+  return text;
 }
 
 // ─── Main function ────────────────────────────────────────────────────────────
@@ -108,6 +165,12 @@ export async function runStoryAction(
   input: StoryActionInput
 ): Promise<StoryActionOutput> {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
+
+  console.log("[Chirpie][story-action] config", {
+    provider: "openai",
+    hasKey: Boolean(apiKey),
+    action: input.action,
+  });
 
   if (!apiKey) {
     return buildFallback(input);
@@ -120,25 +183,20 @@ export async function runStoryAction(
     `Key points: ${input.keyPoints.slice(0, 3).join("; ")}`,
     `Tone: ${input.tonePreference}`,
     ...(input.action === "follow_up" && input.userQuestion
-      ? [`\nUser's question: ${input.userQuestion}`]
+      ? [`User question: ${input.userQuestion}`]
       : []),
   ].join("\n");
 
   try {
-    const client = new Anthropic({ apiKey });
-    const response = await client.messages.create({
-      model: MODEL,
-      max_tokens: MAX_TOKENS,
-      system: buildSystemPrompt(input.action, input.isHighGravity ?? false),
-      messages: [{ role: "user", content: userMessage }],
+    console.log("[Chirpie][story-action] calling OpenAI", {
+      action: input.action,
     });
 
-    const block = response.content[0];
-    if (block.type !== "text" || !block.text.trim()) {
-      return buildFallback(input);
-    }
+    const text = await generateText(
+      buildSystemPrompt(input.action, input.isHighGravity ?? false),
+      userMessage
+    );
 
-    const text = block.text.trim();
     return {
       text,
       sourceUrl: input.action === "hear_more" ? input.sourceUrl : undefined,

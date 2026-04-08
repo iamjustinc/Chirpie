@@ -6,17 +6,17 @@
  * Flow:
  *   1. Run gravity-check on headline + summary
  *   2. Build user message (raw input + is_high_gravity flag)
- *   3. Call Claude with CHIRPIE_TRANSFORM_SYSTEM_PROMPT
+ *   3. Call OpenAI with CHIRPIE_TRANSFORM_SYSTEM_PROMPT
  *   4. Parse + validate output with Zod
  *   5. If validation fails → one repair attempt
- *   6. If repair fails → throw typed error
+ *   6. If repair fails → return grounded mock output
  *
  * Fallback:
  *   If OPENAI_API_KEY is absent, return a deterministic mock output so the
  *   app can be developed and demoed locally without AI credentials.
  */
 
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import { ZodError } from "zod";
 import {
   TransformOutputSchema,
@@ -26,22 +26,21 @@ import {
 import { gravityCheck } from "./gravity-check";
 import { CHIRPIE_TRANSFORM_SYSTEM_PROMPT } from "./prompts/chirpie-transform-system";
 
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
 // ─── Model config ─────────────────────────────────────────────────────────────
 
-const MODEL = "claude-3-5-sonnet-20241022";
-const MAX_TOKENS = 1024;
+const MODEL = "gpt-5-mini";
+const MAX_OUTPUT_TOKENS = 900;
 
 // ─── Mock fallback ────────────────────────────────────────────────────────────
-// Used when OPENAI_API_KEY is not set. Returns deterministic, tone-flavored
-// output so every existing route and page continues to work in dev.
 
 const MOCK_OPENERS: Record<TransformInput["tone_preference"], string> = {
-  gen_z:
-    "here's what's actually going on with this one —",
-  professional:
-    "Here is a brief summary of the key details and their significance.",
-  casual:
-    "Here's what's happening and why it's worth knowing —",
+  gen_z: "here's what's actually going on with this one —",
+  professional: "Here is a brief summary of the key details and their significance.",
+  casual: "Here's what's happening and why it's worth knowing —",
 };
 
 function buildMockOutput(input: TransformInput): TransformOutput {
@@ -51,7 +50,6 @@ function buildMockOutput(input: TransformInput): TransformOutput {
     ? "Here is a measured summary of what's known so far."
     : MOCK_OPENERS[input.tone_preference];
 
-  // Derive key points from the summary — split on sentence boundaries
   const sentences = input.summary
     .split(/(?<=[.!?])\s+/)
     .map((s) => s.trim())
@@ -66,8 +64,8 @@ function buildMockOutput(input: TransformInput): TransformOutput {
 
   return {
     headline: input.headline,
-    chat_opening: `${opener} — ${input.summary}`,
-    why_it_matters: `This story covers: ${input.summary.slice(0, 160)}`,
+    chat_opening: `${opener} ${input.summary}`,
+    why_it_matters: `This matters because ${input.summary.slice(0, 160)}`,
     key_points,
     follow_up_prompts: [
       "Why does this matter?",
@@ -77,27 +75,41 @@ function buildMockOutput(input: TransformInput): TransformOutput {
   };
 }
 
-// ─── Claude call ──────────────────────────────────────────────────────────────
+// ─── OpenAI call ──────────────────────────────────────────────────────────────
 
-async function callClaude(
-  client: Anthropic,
-  userMessage: string
-): Promise<string> {
-  const response = await client.messages.create({
+async function callOpenAI(userMessage: string): Promise<string> {
+  const response = await client.responses.create({
     model: MODEL,
-    max_tokens: MAX_TOKENS,
-    system: CHIRPIE_TRANSFORM_SYSTEM_PROMPT,
-    messages: [{ role: "user", content: userMessage }],
+    max_output_tokens: MAX_OUTPUT_TOKENS,
+    input: [
+      {
+        role: "system",
+        content: [
+          {
+            type: "input_text",
+            text: CHIRPIE_TRANSFORM_SYSTEM_PROMPT,
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "input_text",
+            text: userMessage,
+          },
+        ],
+      },
+    ],
   });
 
-  const block = response.content[0];
-  if (block.type !== "text") {
-    throw new Error(
-      `[Chirpie] Unexpected Claude response type: ${block.type}`
-    );
+  const text = response.output_text?.trim();
+
+  if (!text) {
+    throw new Error("[Chirpie] OpenAI returned empty transform output");
   }
 
-  return block.text.trim();
+  return text;
 }
 
 // ─── Parse + validate ─────────────────────────────────────────────────────────
@@ -108,7 +120,6 @@ type ParseResult =
 
 function tryParse(raw: string): ParseResult {
   try {
-    // Strip markdown code fences in case Claude wraps the JSON despite instructions
     const cleaned = raw
       .replace(/^```(?:json)?\s*/i, "")
       .replace(/\s*```$/i, "")
@@ -121,9 +132,10 @@ function tryParse(raw: string): ParseResult {
     if (err instanceof ZodError) {
       return {
         success: false,
-        error: `Zod validation: ${err.errors.map((e) => e.message).join(", ")}`,
+        error: `Zod validation: ${err.issues.map((e) => e.message).join(", ")}`,
       };
     }
+
     return {
       success: false,
       error: err instanceof Error ? err.message : String(err),
@@ -136,15 +148,13 @@ function tryParse(raw: string): ParseResult {
 export async function transformStory(
   rawInput: TransformInput
 ): Promise<TransformOutput & { _source: "ai" | "mock" }> {
-  // Do NOT re-parse here — route.ts already ran TransformInputSchema.parse()
-  // before calling this function. A second unguarded parse would turn any
-  // edge-case ZodError into a 500 instead of the 400 it deserves.
   const input = rawInput;
-
-  // Trim guards against whitespace-padded or placeholder env var values
-  // (e.g. OPENAI_API_KEY=" " or OPENAI_API_KEY=your-key-here would
-  // otherwise pass the !apiKey check and blow up on the real API call).
   const apiKey = process.env.OPENAI_API_KEY?.trim();
+
+  console.log("[Chirpie][transform-story] config", {
+    provider: "openai",
+    hasKey: Boolean(apiKey),
+  });
 
   if (!apiKey) {
     console.warn(
@@ -153,7 +163,6 @@ export async function transformStory(
     return { ...buildMockOutput(input), _source: "mock" };
   }
 
-  // Run gravity check before calling Claude
   const gravity = gravityCheck(input.headline, input.summary);
 
   if (gravity.isHighGravity) {
@@ -162,7 +171,6 @@ export async function transformStory(
     );
   }
 
-  // Build user message — inject is_high_gravity so the system prompt can act on it
   const userMessage = JSON.stringify({
     headline: input.headline,
     summary: input.summary,
@@ -171,42 +179,53 @@ export async function transformStory(
     is_high_gravity: gravity.isHighGravity,
   });
 
-  const client = new Anthropic({ apiKey });
+  try {
+    console.log("[Chirpie][transform-story] calling OpenAI");
 
-  // ── Attempt 1 ──────────────────────────────────────────────────────────────
-  const rawOutput = await callClaude(client, userMessage);
-  const firstResult = tryParse(rawOutput);
+    const rawOutput = await callOpenAI(userMessage);
+    const firstResult = tryParse(rawOutput);
 
-  if (firstResult.success) {
-    return { ...firstResult.data, _source: "ai" };
+    if (firstResult.success) {
+      console.log("[Chirpie][transform-story] success", {
+        mode: "ai",
+      });
+      return { ...firstResult.data, _source: "ai" };
+    }
+
+    console.warn(
+      `[Chirpie] First parse failed (${firstResult.error}). Requesting repair…`
+    );
+
+    const repairMessage = [
+      "The JSON you returned was invalid or did not match the required schema.",
+      "Return ONLY the corrected JSON object. Requirements:",
+      "- headline must be a string",
+      "- chat_opening must be a string",
+      "- why_it_matters must be a string",
+      "- key_points must be an array of exactly 3 strings",
+      "- follow_up_prompts must be an array of exactly 3 strings",
+      "- no markdown fences, no text outside the JSON",
+      "",
+      "Original (broken) response:",
+      rawOutput,
+    ].join("\n");
+
+    const repairedOutput = await callOpenAI(repairMessage);
+    const repairResult = tryParse(repairedOutput);
+
+    if (repairResult.success) {
+      console.log("[Chirpie][transform-story] repaired-success", {
+        mode: "ai",
+      });
+      return { ...repairResult.data, _source: "ai" };
+    }
+
+    console.error(
+      `[Chirpie] Transform failed after repair attempt (${repairResult.error}). Returning grounded mock.`
+    );
+    return { ...buildMockOutput(input), _source: "mock" };
+  } catch (err) {
+    console.error("[Chirpie] transform-story AI error:", err);
+    return { ...buildMockOutput(input), _source: "mock" };
   }
-
-  // ── Repair attempt ─────────────────────────────────────────────────────────
-  console.warn(
-    `[Chirpie] First parse failed (${firstResult.error}). Requesting repair…`
-  );
-
-  const repairMessage = [
-    "The JSON you returned was invalid or did not match the required schema.",
-    "Return ONLY the corrected JSON object. Requirements:",
-    "- key_points must be an array of exactly 3 strings",
-    "- follow_up_prompts must be an array of exactly 3 strings",
-    "- no markdown fences, no text outside the JSON",
-    "",
-    "Original (broken) response:",
-    rawOutput,
-  ].join("\n");
-
-  const repairedOutput = await callClaude(client, repairMessage);
-  const repairResult = tryParse(repairedOutput);
-
-  if (repairResult.success) {
-    return { ...repairResult.data, _source: "ai" };
-  }
-
-  // Both attempts failed — return a story-grounded mock rather than throwing a 500
-  console.error(
-    `[Chirpie] Transform failed after repair attempt (${repairResult.error}). Returning grounded mock.`
-  );
-  return { ...buildMockOutput(input), _source: "mock" };
 }
