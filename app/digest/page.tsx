@@ -121,8 +121,13 @@ export default function DigestPage() {
           story,
         }]);
       } else {
-        // No raw story available — end loading after a short delay
-        setTimeout(() => setIsThreadLoading(false), 900);
+        // No curated story for this category — show a graceful fallback message
+        setIsThreadLoading(false);
+        setThreadItems((prev) => [...prev, {
+          type: "assistant-message",
+          id: `msg-${Date.now()}`,
+          text: `nothing new on ${label} right now — check back later or pick another topic.`,
+        }]);
       }
     },
     [apiTone]
@@ -158,7 +163,7 @@ export default function DigestPage() {
 
   return (
     <AppShell maxWidth="md" padTop={true} className="!px-0">
-      <div className="h-[calc(100vh-56px)] flex flex-col">
+      <div className="h-[calc(100vh-64px)] flex flex-col">
         <ConversationThread
           greeting={greeting}
           threadItems={threadItems}

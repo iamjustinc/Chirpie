@@ -64,11 +64,11 @@ export function AppNav() {
         borderColor: "var(--chirpie-border)",
       }}
     >
-      <div className="max-w-2xl mx-auto flex items-center justify-between px-4 h-14">
+      <div className="max-w-2xl mx-auto flex items-center justify-between px-4 h-16">
         {/* Logo */}
         <Link href="/digest" className="flex items-center">
           {/* Logo includes wordmark — no separate text needed */}
-          <Image src="/chirpie-logo.png" alt="Chirpie" width={140} height={56} className="h-14 w-auto object-contain" />
+          <Image src="/chirpie-logo.png" alt="Chirpie" width={160} height={64} className="h-16 w-auto object-contain" />
         </Link>
 
         {/* Nav links */}

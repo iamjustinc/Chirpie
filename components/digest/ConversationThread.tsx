@@ -188,11 +188,13 @@ export function ConversationThread({
         {/* Greeting */}
         <DigestIntroMessage greeting={greeting} />
 
-        {/* ── Initial guided selection — only before first thread item ─────────── */}
+        {/* ── Initial guided selection — exits smoothly when first topic chosen ─── */}
+        <AnimatePresence>
         {isGuidedMode && !hasItems && (
           <motion.div
             initial={{ opacity: 0, y: 14 }}
             animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8, transition: { duration: 0.22 } }}
             transition={{ duration: 0.45, delay: 0.55, ease: [0.22, 1, 0.36, 1] }}
             className="flex items-start gap-2.5"
           >
@@ -262,6 +264,7 @@ export function ConversationThread({
             </div>
           </motion.div>
         )}
+        </AnimatePresence>
 
         {/* ── Thread items ───────────────────────────────────────────────────────── */}
         <AnimatePresence initial={false}>
@@ -270,9 +273,9 @@ export function ConversationThread({
               return (
                 <motion.div
                   key={item.id}
-                  initial={{ opacity: 0, y: 8 }}
+                  initial={{ opacity: 0, y: 16 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+                  transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
                   className="flex justify-end"
                 >
                   <div
@@ -305,9 +308,9 @@ export function ConversationThread({
               return (
                 <motion.div
                   key={item.id}
-                  initial={{ opacity: 0, y: 8 }}
+                  initial={{ opacity: 0, y: 16 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+                  transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
                   className="flex items-start gap-2.5"
                 >
                   <BirdAvatar />
@@ -410,9 +413,9 @@ export function ConversationThread({
           {extraMessages.map((msg) => (
             <motion.div
               key={msg.id}
-              initial={{ opacity: 0, y: 12 }}
+              initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+              transition={{ duration: 0.38, ease: [0.22, 1, 0.36, 1] }}
               className={`flex ${msg.role === "user" ? "justify-end" : "items-start gap-2.5"}`}
             >
               {msg.role === "assistant" && <BirdAvatar />}
@@ -458,7 +461,7 @@ export function ConversationThread({
 
       {/* ── Persistent topic switcher — visible once thread has items ─────────────── */}
       <AnimatePresence>
-        {hasItems && isGuidedMode && !isLoading && (
+        {hasItems && isGuidedMode && (
           <motion.div
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}

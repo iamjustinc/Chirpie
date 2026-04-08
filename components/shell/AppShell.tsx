@@ -32,7 +32,7 @@ export function AppShell({
       <main
         className={cn(
           "mx-auto px-4",
-          padTop && "pt-14",
+          padTop && "pt-16",
           maxWidthMap[maxWidth],
           className
         )}
