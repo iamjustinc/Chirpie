@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
 import { Plus, Minus } from "lucide-react";
 
@@ -112,7 +113,7 @@ export function Footer() {
     >
       <div className="max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-6">
         <div className="flex items-center gap-2">
-          <span className="text-lg">🐦</span>
+          <Image src="/bird-logo.png" alt="" width={20} height={20} className="w-5 h-5 object-contain" />
           <span className="font-bold text-foreground">Chirpie</span>
           <span className="text-xs text-muted-foreground ml-2">
             © 2025 Chirpie Inc.

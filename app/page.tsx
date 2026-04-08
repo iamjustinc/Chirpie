@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { motion } from "framer-motion";
 import { HeroClouds } from "@/components/landing/HeroClouds";
 import { PhoneMockup } from "@/components/landing/PhoneMockup";
@@ -139,7 +140,7 @@ export default function LandingPage() {
           viewport={{ once: true }}
           transition={{ duration: 0.5 }}
         >
-          <span className="text-4xl mb-4 block">🐦</span>
+          <Image src="/bird-logo.png" alt="Chirpie" width={64} height={64} className="w-16 h-16 object-contain mx-auto mb-4" />
           <h2 className="text-3xl sm:text-4xl font-bold text-foreground mb-4 text-balance">
             Ready to stay informed without the overwhelm?
           </h2>

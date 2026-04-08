@@ -18,11 +18,11 @@ const navItems = [
 export function PublicNav() {
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 px-4 sm:px-6">
-      <div className="max-w-5xl mx-auto flex items-center justify-between h-16">
+      <div className="max-w-5xl mx-auto flex items-center justify-between h-20">
         {/* Logo */}
         <Link href="/" className="flex items-center group">
           {/* Logo includes wordmark — no separate text needed */}
-          <Image src="/chirpie-logo.png" alt="Chirpie" width={160} height={64} className="h-16 w-auto object-contain" />
+          <Image src="/chirpie-logo.png" alt="Chirpie" width={200} height={80} className="h-20 w-auto object-contain" />
         </Link>
 
         {/* Actions */}
@@ -64,11 +64,11 @@ export function AppNav() {
         borderColor: "var(--chirpie-border)",
       }}
     >
-      <div className="max-w-2xl mx-auto flex items-center justify-between px-4 h-16">
+      <div className="max-w-2xl mx-auto flex items-center justify-between px-4 h-20">
         {/* Logo */}
         <Link href="/digest" className="flex items-center">
           {/* Logo includes wordmark — no separate text needed */}
-          <Image src="/chirpie-logo.png" alt="Chirpie" width={160} height={64} className="h-16 w-auto object-contain" />
+          <Image src="/chirpie-logo.png" alt="Chirpie" width={200} height={80} className="h-20 w-auto object-contain" />
         </Link>
 
         {/* Nav links */}

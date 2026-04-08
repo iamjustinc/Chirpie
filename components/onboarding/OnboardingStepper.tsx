@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { ChevronRight, ChevronLeft, Check } from "lucide-react";
@@ -152,7 +153,7 @@ export function OnboardingStepper() {
       {/* Header */}
       <div className="pt-8 pb-4 px-4 text-center">
         <div className="flex items-center justify-center gap-1.5 mb-6">
-          <span className="text-xl">🐦</span>
+          <Image src="/bird-logo.png" alt="" width={24} height={24} className="w-6 h-6 object-contain" />
           <span className="font-bold text-foreground">Chirpie</span>
         </div>
         {/* Step dots */}

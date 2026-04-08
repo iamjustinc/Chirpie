@@ -1,6 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
+import Image from "next/image";
 
 export function TypingIndicator() {
   return (
@@ -13,10 +14,10 @@ export function TypingIndicator() {
     >
       {/* Avatar */}
       <div
-        className="w-7 h-7 rounded-full flex items-center justify-center text-sm flex-shrink-0 mt-0.5"
+        className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 overflow-hidden"
         style={{ backgroundColor: "var(--chirpie-muted)" }}
       >
-        🐦
+        <Image src="/bird-logo.png" alt="" width={24} height={24} className="w-5 h-5 object-contain" />
       </div>
 
       {/* Typing bubble */}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { motion } from "framer-motion";
 import { AppShell } from "@/components/shell/AppShell";
 import { ThemeCardPicker } from "@/components/theme/ThemeSwitcher";
@@ -113,10 +114,10 @@ export default function AccountPage() {
           }}
         >
           <div
-            className="w-14 h-14 rounded-full flex items-center justify-center text-2xl"
+            className="w-14 h-14 rounded-full flex items-center justify-center overflow-hidden"
             style={{ backgroundColor: "var(--chirpie-muted)" }}
           >
-            🐦
+            <Image src="/bird-logo.png" alt="" width={40} height={40} className="w-9 h-9 object-contain" />
           </div>
           <div className="flex-1">
             <p className="font-semibold text-foreground">

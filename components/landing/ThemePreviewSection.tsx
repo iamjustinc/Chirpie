@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { motion } from "framer-motion";
 import { themeList } from "@/lib/themes";
 import type { ThemeId } from "@/lib/types";
@@ -99,7 +100,7 @@ export function ThemePreviewSection() {
                 backgroundColor: previewTheme.tokens.card,
               }}
             >
-              <span>🐦</span>
+              <Image src="/bird-logo.png" alt="" width={16} height={16} className="w-4 h-4 object-contain" />
               <span>Chirpie</span>
               <span
                 className="ml-auto px-2 py-0.5 rounded-pill text-[10px]"

@@ -7,7 +7,7 @@ import type { StoryChip } from "@/components/digest/ConversationThread";
 import { loadUserPrefs, getToneGreeting, toneToApiTone } from "@/lib/user-prefs";
 import { fetchStoryTransform } from "@/lib/demo/fetch-story-transform";
 import { getLeadStoryForCategory } from "@/lib/content/get-demo-stories";
-import { uiCategoryToContentCategory, contentCategoryToUICategory } from "@/lib/content/normalize-story";
+import { uiCategoryToContentCategory } from "@/lib/content/normalize-story";
 import { getCategoryLabel } from "@/lib/utils";
 import { CURATED_STORIES } from "@/lib/content/sources/local-curated";
 import type { ContentCategory, RawStory } from "@/lib/content/types";
@@ -63,13 +63,32 @@ export default function DigestPage() {
   const [storyChips, setStoryChips] = useState<StoryChip[]>(INITIAL_CHIPS);
   const [storyMap,   setStoryMap]   = useState<Map<string, RawStory>>(INITIAL_MAP);
 
+  /**
+   * Secondary index: content-category → best live RawStory.
+   * Populated when Guardian suggestions arrive. Used by handleTopicSelect so
+   * broad topic picks (not specific story chips) can also serve live content.
+   */
+  const [liveByCategory, setLiveByCategory] = useState<Map<ContentCategory, RawStory>>(new Map());
+  const liveByCategoryRef = useRef(liveByCategory);
+  liveByCategoryRef.current = liveByCategory;
+
   useEffect(() => {
     fetch("/api/story-suggestions")
       .then((r) => r.ok ? r.json() : null)
       .then((data: StorySuggestion[] | null) => {
         if (!data?.length) return;
+
         setStoryChips(data.map(({ id, label }) => ({ id, label })));
         setStoryMap(new Map(data.map(({ id, rawStory }) => [id, rawStory])));
+
+        // Build category → story index so topic-based selection can prefer live content
+        const catMap = new Map<ContentCategory, RawStory>();
+        for (const { rawStory } of data) {
+          if (!catMap.has(rawStory.category)) {
+            catMap.set(rawStory.category, rawStory);
+          }
+        }
+        setLiveByCategory(catMap);
       })
       .catch(() => { /* silent — curated chips remain */ });
   }, []);
@@ -110,7 +129,11 @@ export default function DigestPage() {
       setIsThreadLoading(true);
 
       const contentCat = uiCategoryToContentCategory(category);
-      const rawStory   = contentCat ? getLeadStoryForCategory(contentCat) : null;
+
+      // Prefer a live Guardian story for this category; fall back to curated
+      const rawStory = contentCat
+        ? (liveByCategoryRef.current.get(contentCat) ?? getLeadStoryForCategory(contentCat))
+        : null;
 
       if (rawStory) {
         const { story } = await fetchStoryTransform(rawStory, apiTone, `topic-${category}`);
@@ -121,7 +144,7 @@ export default function DigestPage() {
           story,
         }]);
       } else {
-        // No curated story for this category — show a graceful fallback message
+        // No story available for this category — show graceful fallback
         setIsThreadLoading(false);
         setThreadItems((prev) => [...prev, {
           type: "assistant-message",
@@ -163,7 +186,8 @@ export default function DigestPage() {
 
   return (
     <AppShell maxWidth="md" padTop={true} className="!px-0">
-      <div className="h-[calc(100vh-64px)] flex flex-col">
+      {/* Height accounts for the h-20 AppNav bar */}
+      <div className="h-[calc(100vh-80px)] flex flex-col">
         <ConversationThread
           greeting={greeting}
           threadItems={threadItems}

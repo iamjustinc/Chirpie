@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Eye, EyeOff, ArrowRight } from "lucide-react";
@@ -51,7 +52,7 @@ export default function SignInPage() {
         >
           {/* Logo */}
           <div className="text-center mb-8">
-            <span className="text-4xl block mb-3">🐦</span>
+            <Image src="/bird-logo.png" alt="Chirpie" width={64} height={64} className="w-16 h-16 object-contain mx-auto mb-3" />
             <h1 className="text-xl font-bold text-foreground">Welcome back</h1>
             <p className="text-sm text-muted-foreground mt-1">
               Your digest is waiting.
