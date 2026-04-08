@@ -86,8 +86,8 @@ export function PhoneMockup() {
           <Image
             src="/chirpie-logo.png"
             alt="Chirpie"
-            width={100}
-            height={40}
+            width={80}
+            height={32}
             className="h-[28px] w-auto object-contain"
           />
           <span
