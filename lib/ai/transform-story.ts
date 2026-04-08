@@ -12,7 +12,7 @@
  *   6. If repair fails → throw typed error
  *
  * Fallback:
- *   If ANTHROPIC_API_KEY is absent, return a deterministic mock output so the
+ *   If OPENAI_API_KEY is absent, return a deterministic mock output so the
  *   app can be developed and demoed locally without AI credentials.
  */
 
@@ -32,7 +32,7 @@ const MODEL = "claude-3-5-sonnet-20241022";
 const MAX_TOKENS = 1024;
 
 // ─── Mock fallback ────────────────────────────────────────────────────────────
-// Used when ANTHROPIC_API_KEY is not set. Returns deterministic, tone-flavored
+// Used when OPENAI_API_KEY is not set. Returns deterministic, tone-flavored
 // output so every existing route and page continues to work in dev.
 
 const MOCK_OPENERS: Record<TransformInput["tone_preference"], string> = {
@@ -142,13 +142,13 @@ export async function transformStory(
   const input = rawInput;
 
   // Trim guards against whitespace-padded or placeholder env var values
-  // (e.g. ANTHROPIC_API_KEY=" " or ANTHROPIC_API_KEY=your-key-here would
+  // (e.g. OPENAI_API_KEY=" " or OPENAI_API_KEY=your-key-here would
   // otherwise pass the !apiKey check and blow up on the real API call).
-  const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
 
   if (!apiKey) {
     console.warn(
-      "[Chirpie] ANTHROPIC_API_KEY not configured — returning deterministic mock output"
+      "[Chirpie] OPENAI_API_KEY not configured — returning deterministic mock output"
     );
     return { ...buildMockOutput(input), _source: "mock" };
   }

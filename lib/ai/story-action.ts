@@ -7,7 +7,7 @@
  * smaller (1–4 sentences) and the system prompt is action-specific.
  *
  * Falls back to derivations from existing story fields when:
- *   - ANTHROPIC_API_KEY is absent
+ *   - OPENAI is absent
  *   - The API call fails or times out
  */
 
@@ -107,7 +107,7 @@ function buildSystemPrompt(action: StoryActionType, isHighGravity: boolean): str
 export async function runStoryAction(
   input: StoryActionInput
 ): Promise<StoryActionOutput> {
-  const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
 
   if (!apiKey) {
     return buildFallback(input);
