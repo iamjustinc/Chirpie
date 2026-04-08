@@ -201,30 +201,36 @@ export function ConversationThread({
 
   async function submitMessage(text: string) {
     if (!text.trim()) return;
+    if (isSubmittingRef.current) return;
 
     const cleanText = text.trim();
+    isSubmittingRef.current = true;
     setInput("");
     setShowEndPrompts(false);
 
-    // Let the parent router decide first (search, navigation, topic switch).
-    // If the parent handles it, its own isLoading indicator takes over — we
-    // must NOT also set isTypingReply or push an extra user bubble here.
-    const handled = await onTypedComposerIntent?.(cleanText);
-    if (handled) return;
-
-    // Pure follow-up path: push user message + eventual reply into threadItems
-    // via onFollowUpMessage so they stay in correct chronological position
-    // relative to any future stories added by the parent.
-    setIsTypingReply(true);
     try {
-      onFollowUpMessage?.("user", cleanText);
+      // Let the parent router decide first (search, navigation, topic switch).
+      // If the parent handles it, its own isLoading indicator takes over — we
+      // must NOT also set isTypingReply or push an extra user bubble here.
+      const handled = await onTypedComposerIntent?.(cleanText);
+      if (handled) return;
 
-      const story = lastStory?.type === "story" ? lastStory.story : null;
-      const replyText = await fetchFollowUpReply(cleanText, story);
+      // Pure follow-up path: push user message + eventual reply into threadItems
+      // via onFollowUpMessage so they stay in correct chronological position
+      // relative to any future stories added by the parent.
+      setIsTypingReply(true);
+      try {
+        onFollowUpMessage?.("user", cleanText);
 
-      onFollowUpMessage?.("assistant", replyText);
+        const story = lastStory?.type === "story" ? lastStory.story : null;
+        const replyText = await fetchFollowUpReply(cleanText, story);
+
+        onFollowUpMessage?.("assistant", replyText);
+      } finally {
+        setIsTypingReply(false);
+      }
     } finally {
-      setIsTypingReply(false);
+      isSubmittingRef.current = false;
     }
   }
 
