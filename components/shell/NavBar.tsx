@@ -22,7 +22,7 @@ export function PublicNav() {
         {/* Logo */}
         <Link href="/" className="flex items-center group">
           {/* Logo includes wordmark — no separate text needed */}
-          <Image src="/chirpie-logo.png" alt="Chirpie" width={250} height={104} className="h-26 w-auto object-contain" />
+          <Image src="/chirpie-logo.png" alt="Chirpie" width={200} height={80} className="h-26 w-auto object-contain" />
         </Link>
 
         {/* Actions */}
