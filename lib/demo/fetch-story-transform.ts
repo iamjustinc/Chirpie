@@ -81,5 +81,16 @@ export async function fetchStoryTransform(
   const sanitized = sanitizeTransformOutput(rawOutput, rawStory);
   const story = transformOutputToStory(sanitized, rawStory, apiTone, storyId);
 
+  // ── Truth signal for dev observability ────────────────────────────────────
+  const provider = rawStory.id.startsWith("guardian-") ? "guardian" : "curated";
+  const transform = timedOut
+    ? "timeout-fallback"
+    : isAIGenerated
+    ? "ai"
+    : "sanitizer-fallback";
+  console.info(
+    `[Chirpie] fetchStoryTransform: provider=${provider}, transform=${transform}, story="${rawStory.headline.slice(0, 60)}"`
+  );
+
   return { story, timedOut, isAIGenerated };
 }

@@ -35,11 +35,11 @@ export function StoryBubble({ story, onFollowUp, delay = 0 }: StoryBubbleProps) 
     >
       {/* Chirpie avatar */}
       <div
-        className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-1 overflow-hidden"
+        className="w-13 h-13 rounded-full flex items-center justify-center flex-shrink-0 mt-1 overflow-hidden"
         style={{ backgroundColor: "var(--chirpie-muted)" }}
         aria-hidden="true"
       >
-        <Image src="/bird-logo.png" alt="" width={24} height={24} className="w-5 h-5 object-contain" />
+        <Image src="/bird-logo.png" alt="" width={44} height={44} className="w-11 h-11 object-contain" />
       </div>
 
       {/* Bubble */}

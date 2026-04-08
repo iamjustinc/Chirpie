@@ -42,10 +42,10 @@ export function DigestIntroMessage({ greeting }: DigestIntroMessageProps) {
         className="flex items-end gap-2.5"
       >
         <div
-          className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden"
+          className="w-14 h-14 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden"
           style={{ backgroundColor: "var(--chirpie-muted)" }}
         >
-          <Image src="/bird-logo.png" alt="" width={28} height={28} className="w-6 h-6 object-contain" />
+          <Image src="/bird-logo.png" alt="" width={48} height={48} className="w-12 h-12 object-contain" />
         </div>
         <div
           className="px-4 py-3 rounded-2xl rounded-bl-sm max-w-[82%]"

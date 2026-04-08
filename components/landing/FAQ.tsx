@@ -113,7 +113,7 @@ export function Footer() {
     >
       <div className="max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-6">
         <div className="flex items-center gap-2">
-          <Image src="/bird-logo.png" alt="" width={20} height={20} className="w-5 h-5 object-contain" />
+          <Image src="/bird-logo.png" alt="" width={44} height={44} className="w-11 h-11 object-contain" />
           <span className="font-bold text-foreground">Chirpie</span>
           <span className="text-xs text-muted-foreground ml-2">
             © 2025 Chirpie Inc.

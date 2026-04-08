@@ -140,7 +140,7 @@ export default function LandingPage() {
           viewport={{ once: true }}
           transition={{ duration: 0.5 }}
         >
-          <Image src="/bird-logo.png" alt="Chirpie" width={64} height={64} className="w-16 h-16 object-contain mx-auto mb-4" />
+          <Image src="/bird-logo.png" alt="Chirpie" width={88} height={88} className="w-22 h-22 object-contain mx-auto mb-4" />
           <h2 className="text-3xl sm:text-4xl font-bold text-foreground mb-4 text-balance">
             Ready to stay informed without the overwhelm?
           </h2>

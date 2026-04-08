@@ -52,7 +52,7 @@ export default function SignUpPage() {
         >
           {/* Logo */}
           <div className="text-center mb-8">
-            <Image src="/bird-logo.png" alt="Chirpie" width={64} height={64} className="w-16 h-16 object-contain mx-auto mb-3" />
+            <Image src="/bird-logo.png" alt="Chirpie" width={88} height={88} className="w-22 h-22 object-contain mx-auto mb-3" />
             <h1 className="text-xl font-bold text-foreground">Create your account</h1>
             <p className="text-sm text-muted-foreground mt-1">
               Your digest is two minutes away.

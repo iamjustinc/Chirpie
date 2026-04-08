@@ -30,11 +30,33 @@ const DEFAULT_FOLLOW_UPS = [
   "What happens next?",
 ];
 
-const DEFAULT_KEY_POINTS = [
-  "Key detail from the original reporting",
-  "Secondary context that shapes the situation",
-  "Likely next development to follow",
-];
+/**
+ * Splits a summary string into up to 3 usable sentences for key_points.
+ * Falls back to generic-but-accurate phrases only when the summary is too short.
+ */
+function deriveKeyPoints(summary?: string): [string, string, string] {
+  if (!summary) {
+    return [
+      "Story details are loading.",
+      "More context is available from the source.",
+      "Check the original article for full coverage.",
+    ];
+  }
+
+  // Split on sentence boundaries — keep non-empty, trimmed strings
+  const sentences = summary
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 10);
+
+  const [a, b, c] = sentences;
+  const fallback = "See the source article for additional detail.";
+  return [
+    a ?? summary.slice(0, 120),
+    b ?? fallback,
+    c ?? fallback,
+  ];
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -92,13 +114,18 @@ export function sanitizeTransformOutput(
       "We couldn't load the full story right now. Check the source link for details."
   );
 
-  // Why it matters — prefer AI, neutral fallback
+  // Why it matters — prefer AI, fall back to source summary if available
   const whyItMatters = safeString(
     obj.why_it_matters,
-    isHighGravity
-      ? "This story has significant real-world implications that warrant attention."
-      : "This story has meaningful real-world implications worth understanding in context."
+    source?.summary
+      ? `This story is about: ${source.summary.slice(0, 160)}.`
+      : isHighGravity
+        ? "This story has significant real-world implications that warrant attention."
+        : "This story has real-world implications worth understanding in context."
   );
+
+  // Derive story-grounded key points from the source summary
+  const derivedKeyPoints = deriveKeyPoints(source?.summary);
 
   return {
     headline,
@@ -106,7 +133,7 @@ export function sanitizeTransformOutput(
     why_it_matters: whyItMatters,
     key_points: ensureThreeStrings(
       Array.isArray(obj.key_points) ? obj.key_points : [],
-      DEFAULT_KEY_POINTS
+      derivedKeyPoints
     ),
     follow_up_prompts: ensureThreeStrings(
       Array.isArray(obj.follow_up_prompts) ? obj.follow_up_prompts : [],

@@ -114,10 +114,10 @@ export default function AccountPage() {
           }}
         >
           <div
-            className="w-14 h-14 rounded-full flex items-center justify-center overflow-hidden"
+            className="w-20 h-20 rounded-full flex items-center justify-center overflow-hidden"
             style={{ backgroundColor: "var(--chirpie-muted)" }}
           >
-            <Image src="/bird-logo.png" alt="" width={40} height={40} className="w-9 h-9 object-contain" />
+            <Image src="/bird-logo.png" alt="" width={60} height={60} className="w-15 h-15 object-contain" />
           </div>
           <div className="flex-1">
             <p className="font-semibold text-foreground">

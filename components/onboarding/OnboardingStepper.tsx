@@ -153,7 +153,7 @@ export function OnboardingStepper() {
       {/* Header */}
       <div className="pt-8 pb-4 px-4 text-center">
         <div className="flex items-center justify-center gap-1.5 mb-6">
-          <Image src="/bird-logo.png" alt="" width={24} height={24} className="w-6 h-6 object-contain" />
+          <Image src="/bird-logo.png" alt="" width={48} height={48} className="w-12 h-12 object-contain" />
           <span className="font-bold text-foreground">Chirpie</span>
         </div>
         {/* Step dots */}

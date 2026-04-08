@@ -336,7 +336,7 @@ export default function DemoPage() {
         }}
       >
         <div className="flex items-center gap-2 min-w-0">
-          <Image src="/bird-logo.png" alt="" width={20} height={20} className="w-5 h-5 object-contain flex-shrink-0" />
+          <Image src="/bird-logo.png" alt="" width={44} height={44} className="w-11 h-11 object-contain flex-shrink-0" />
           <AnimatePresence mode="wait" initial={false}>
             <motion.p
               key={bannerTitle}

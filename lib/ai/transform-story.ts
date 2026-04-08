@@ -48,19 +48,27 @@ function buildMockOutput(input: TransformInput): TransformOutput {
   const isHighGravity = gravityCheck(input.headline, input.summary).isHighGravity;
 
   const opener = isHighGravity
-    ? "This story requires careful attention. Here is a measured summary of the known facts and their significance."
+    ? "Here is a measured summary of what's known so far."
     : MOCK_OPENERS[input.tone_preference];
+
+  // Derive key points from the summary — split on sentence boundaries
+  const sentences = input.summary
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 10);
+
+  const fallbackPoint = "See the original source for more detail.";
+  const key_points: [string, string, string] = [
+    sentences[0] ?? input.summary.slice(0, 120),
+    sentences[1] ?? fallbackPoint,
+    sentences[2] ?? fallbackPoint,
+  ];
 
   return {
     headline: input.headline,
     chat_opening: `${opener} — ${input.summary}`,
-    why_it_matters:
-      "This story has meaningful real-world implications worth understanding in context.",
-    key_points: [
-      "Key detail from the original reporting",
-      "Secondary context that shapes the situation",
-      "Likely next development to follow",
-    ],
+    why_it_matters: `This story covers: ${input.summary.slice(0, 160)}`,
+    key_points,
     follow_up_prompts: [
       "Why does this matter?",
       "What's the background?",
@@ -196,8 +204,9 @@ export async function transformStory(
     return { ...repairResult.data, _source: "ai" };
   }
 
-  // Both attempts failed — surface a clean error (route.ts will catch it)
-  throw new Error(
-    `[Chirpie] Transform failed after repair attempt: ${repairResult.error}`
+  // Both attempts failed — return a story-grounded mock rather than throwing a 500
+  console.error(
+    `[Chirpie] Transform failed after repair attempt (${repairResult.error}). Returning grounded mock.`
   );
+  return { ...buildMockOutput(input), _source: "mock" };
 }

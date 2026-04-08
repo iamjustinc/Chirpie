@@ -80,14 +80,14 @@ function getContextualPrompts(category: Category | undefined): [string, string, 
 
 // ─── Bird avatar (reused in several places) ───────────────────────────────────
 
-function BirdAvatar({ className = "w-7 h-7 mt-1" }: { className?: string }) {
+function BirdAvatar({ className = "w-13 h-13 mt-1" }: { className?: string }) {
   return (
     <div
       className={`rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden ${className}`}
       style={{ backgroundColor: "var(--chirpie-muted)" }}
       aria-hidden="true"
     >
-      <Image src="/bird-logo.png" alt="" width={24} height={24} className="w-5 h-5 object-contain" />
+      <Image src="/bird-logo.png" alt="" width={44} height={44} className="w-11 h-11 object-contain" />
     </div>
   );
 }

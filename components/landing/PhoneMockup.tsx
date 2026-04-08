@@ -88,7 +88,7 @@ export function PhoneMockup() {
             alt="Chirpie"
             width={64}
             height={26}
-            className="h-[22px] w-auto object-contain"
+            className="h-[28px] w-auto object-contain"
           />
           <span
             className="ml-auto text-[9px] px-1.5 py-0.5 rounded-pill font-medium"
