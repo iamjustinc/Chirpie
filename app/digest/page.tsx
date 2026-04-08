@@ -14,8 +14,6 @@ import type { ContentCategory, RawStory } from "@/lib/content/types";
 import type { Category, ThreadItem } from "@/lib/types";
 import type { StorySuggestion } from "@/app/api/story-suggestions/route";
 
-// ─── Category icons ───────────────────────────────────────────────────────────
-
 const CATEGORY_ICONS: Partial<Record<Category, string>> = {
   general: "📰",
   "pop-culture": "🎬",
@@ -24,8 +22,6 @@ const CATEGORY_ICONS: Partial<Record<Category, string>> = {
   technology: "💻",
   world: "🌍",
 };
-
-// ─── Initial curated chips ────────────────────────────────────────────────────
 
 function buildCuratedChips(): { chips: StoryChip[]; map: Map<string, RawStory> } {
   const seen = new Set<ContentCategory>();
@@ -45,8 +41,6 @@ function buildCuratedChips(): { chips: StoryChip[]; map: Map<string, RawStory> }
 
 const { chips: INITIAL_CHIPS, map: INITIAL_MAP } = buildCuratedChips();
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
 function normalizeText(text: string): string {
   return text.trim().toLowerCase();
 }
@@ -55,34 +49,55 @@ function categoryMatchesQuery(query: string): Category | null {
   const q = normalizeText(query);
 
   if (
+    q === "pop" ||
     q.includes("pop culture") ||
     q.includes("pop-culture") ||
     q.includes("celeb") ||
     q.includes("celebrity") ||
-    q.includes("music") ||
     q.includes("entertainment") ||
-    q === "pop"
+    q === "music news"
   ) {
     return "pop-culture";
   }
 
-  if (q.includes("general") || q === "news" || q === "general news") {
+  if (
+    q === "general" ||
+    q === "news" ||
+    q === "general news"
+  ) {
     return "general";
   }
 
-  if (q.includes("finance") || q.includes("market") || q.includes("stocks") || q.includes("money")) {
+  if (
+    q === "finance" ||
+    q.includes("market") ||
+    q.includes("stocks") ||
+    q.includes("money")
+  ) {
     return "finance";
   }
 
-  if (q.includes("sports") || q.includes("game") || q.includes("match")) {
+  if (
+    q === "sports" ||
+    q.includes("game") ||
+    q.includes("match")
+  ) {
     return "sports";
   }
 
-  if (q.includes("tech") || q.includes("technology") || q.includes("ai") || q.includes("startup")) {
+  if (
+    q === "tech" ||
+    q === "technology" ||
+    q.includes("startup")
+  ) {
     return "technology";
   }
 
-  if (q.includes("world") || q.includes("global") || q.includes("international")) {
+  if (
+    q === "world" ||
+    q.includes("global") ||
+    q.includes("international")
+  ) {
     return "world";
   }
 
@@ -91,6 +106,7 @@ function categoryMatchesQuery(query: string): Category | null {
 
 function isNextStoryRequest(text: string): boolean {
   const q = normalizeText(text);
+
   return [
     "next",
     "next news",
@@ -101,11 +117,19 @@ function isNextStoryRequest(text: string): boolean {
     "more news",
     "more",
     "next please",
+    "another update",
+    "another pop update",
+    "another general update",
+    "another finance update",
+    "another tech update",
+    "another sports update",
+    "another world update",
   ].includes(q);
 }
 
 function isTopicSearchRequest(text: string): boolean {
   const q = normalizeText(text);
+
   return (
     q.startsWith("tell me about ") ||
     q.startsWith("what's happening with ") ||
@@ -124,8 +148,6 @@ function extractTopicQuery(text: string): string {
     .replace(/^show me\s+/i, "")
     .trim();
 }
-
-// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DigestPage() {
   const [prefs] = useState(() => loadUserPrefs());
@@ -164,7 +186,7 @@ export default function DigestPage() {
         setLiveByCategory(catMap);
       })
       .catch(() => {
-        // curated chips remain
+        // keep curated fallback
       });
   }, []);
 
@@ -191,6 +213,12 @@ export default function DigestPage() {
         text,
       },
     ]);
+  }, []);
+
+  const getLastStoryCategory = useCallback((): Category | null => {
+    const lastStory = [...threadItemsRef.current].reverse().find((i) => i.type === "story");
+    if (!lastStory || lastStory.type !== "story") return null;
+    return lastStory.story.category;
   }, []);
 
   const handleTopicSelect = useCallback(
@@ -224,7 +252,12 @@ export default function DigestPage() {
       }
 
       try {
-        const { story } = await fetchStoryTransform(rawStory, apiTone, `topic-${category}-${Date.now()}`);
+        const { story } = await fetchStoryTransform(
+          rawStory,
+          apiTone,
+          `topic-${category}-${Date.now()}`
+        );
+
         setThreadItems((prev) => [
           ...prev,
           {
@@ -244,7 +277,11 @@ export default function DigestPage() {
     async (id: string, customUserText?: string) => {
       const rawStory = storyMap.get(id);
       const chip = storyChips.find((c) => c.id === id);
-      if (!rawStory || !chip) return;
+
+      if (!rawStory || !chip) {
+        appendAssistantMessage("i couldn't load that story right now.");
+        return;
+      }
 
       const userMsg: ThreadItem = {
         type: "user-message",
@@ -257,7 +294,12 @@ export default function DigestPage() {
       setIsThreadLoading(true);
 
       try {
-        const { story } = await fetchStoryTransform(rawStory, apiTone, `story-${id}-${Date.now()}`);
+        const { story } = await fetchStoryTransform(
+          rawStory,
+          apiTone,
+          `story-${id}-${Date.now()}`
+        );
+
         setThreadItems((prev) => [
           ...prev,
           {
@@ -270,18 +312,22 @@ export default function DigestPage() {
         setIsThreadLoading(false);
       }
     },
-    [storyMap, storyChips, apiTone]
+    [storyMap, storyChips, apiTone, appendAssistantMessage]
   );
 
-  const handleNextStory = useCallback(async () => {
-    const chip = nextSuggestionChip;
-    if (!chip) {
-      appendAssistantMessage("i don't have another story queued yet — try switching topics.");
-      return;
-    }
+  const handleNextStory = useCallback(
+    async (customUserText = "new news") => {
+      const chip = nextSuggestionChip;
 
-    await handleStoryChipSelect(chip.id, "new news");
-  }, [nextSuggestionChip, handleStoryChipSelect, appendAssistantMessage]);
+      if (!chip) {
+        appendAssistantMessage("i don't have another story queued yet — try switching topics.");
+        return;
+      }
+
+      await handleStoryChipSelect(chip.id, customUserText);
+    },
+    [nextSuggestionChip, handleStoryChipSelect, appendAssistantMessage]
+  );
 
   const handleGuardianTopicSearch = useCallback(
     async (userText: string) => {
@@ -319,7 +365,7 @@ export default function DigestPage() {
         const { story } = await fetchStoryTransform(
           rawStory,
           apiTone,
-          `search-${query}-${Date.now()}`
+          `search-${Date.now()}`
         );
 
         setThreadItems((prev) => [
@@ -341,28 +387,44 @@ export default function DigestPage() {
   );
 
   const handleTypedComposerIntent = useCallback(
-    async (text: string) => {
+    async (text: string): Promise<boolean> => {
       const normalized = normalizeText(text);
+      console.log("[composer] raw", text);
+
+      if (isTopicSearchRequest(normalized)) {
+        console.log("[composer] route", "topic_search");
+        await handleGuardianTopicSearch(text);
+        return true;
+      }
 
       if (isNextStoryRequest(normalized)) {
-        await handleNextStory();
-        return;
+        console.log("[composer] route", "next_story");
+        await handleNextStory(text);
+        return true;
       }
 
       const matchedCategory = categoryMatchesQuery(normalized);
       if (matchedCategory) {
+        console.log("[composer] route", "topic_switch", matchedCategory);
         await handleTopicSelect(matchedCategory, text);
-        return;
+        return true;
       }
 
-      if (isTopicSearchRequest(normalized)) {
-        await handleGuardianTopicSearch(text);
-        return;
+      const lastCategory = getLastStoryCategory();
+      if (
+        normalized.includes("another") &&
+        normalized.includes("update") &&
+        lastCategory
+      ) {
+        console.log("[composer] route", "contextual_next_story", lastCategory);
+        await handleNextStory(text);
+        return true;
       }
 
-      // Otherwise let ConversationThread treat it as a current-story follow-up.
+      console.log("[composer] route", "story_follow_up");
+      return false;
     },
-    [handleNextStory, handleTopicSelect, handleGuardianTopicSearch]
+    [handleGuardianTopicSearch, handleNextStory, handleTopicSelect, getLastStoryCategory]
   );
 
   return (

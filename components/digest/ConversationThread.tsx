@@ -36,8 +36,8 @@ interface ConversationThreadProps {
   storyChips?: StoryChip[];
   onStoryChipSelect?: (id: string) => void;
   nextSuggestionChip?: StoryChip;
-  onNextStory?: () => Promise<void> | void;
-  onTypedComposerIntent?: (text: string) => Promise<void> | void;
+  onNextStory?: (customUserText?: string) => Promise<void> | void;
+  onTypedComposerIntent?: (text: string) => Promise<boolean> | boolean;
 }
 
 const CONTEXTUAL_PROMPTS: Partial<Record<Category, [string, string, string]>> = {
@@ -75,36 +75,6 @@ function BirdAvatar({ className = "w-13 h-13 mt-1" }: { className?: string }) {
         className="w-11 h-11 object-contain"
       />
     </div>
-  );
-}
-
-function normalizeText(text: string): string {
-  return text.trim().toLowerCase();
-}
-
-function isNextStoryRequest(text: string): boolean {
-  const q = normalizeText(text);
-  return [
-    "next",
-    "next news",
-    "new news",
-    "another one",
-    "another story",
-    "next story",
-    "more news",
-    "more",
-    "next please",
-  ].includes(q);
-}
-
-function isExplicitTopicOrEntitySearch(text: string): boolean {
-  const q = normalizeText(text);
-  return (
-    q.startsWith("tell me about ") ||
-    q.startsWith("what's happening with ") ||
-    q.startsWith("whats happening with ") ||
-    q.startsWith("news about ") ||
-    q.startsWith("show me ")
   );
 }
 
@@ -239,16 +209,10 @@ export function ConversationThread({
     setIsTypingReply(true);
     setShowEndPrompts(false);
 
-    const normalized = normalizeText(cleanText);
-
     try {
-      if (isNextStoryRequest(normalized) && onNextStory) {
-        await onNextStory();
-        return;
-      }
+      const handled = await onTypedComposerIntent?.(cleanText);
 
-      if (isExplicitTopicOrEntitySearch(normalized) && onTypedComposerIntent) {
-        await onTypedComposerIntent(cleanText);
+      if (handled) {
         return;
       }
 
