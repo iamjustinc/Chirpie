@@ -15,7 +15,7 @@ import Anthropic from "@anthropic-ai/sdk";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type StoryActionType = "one_line_recap" | "why_it_matters" | "hear_more";
+export type StoryActionType = "one_line_recap" | "why_it_matters" | "hear_more" | "follow_up";
 
 export interface StoryActionInput {
   action: StoryActionType;
@@ -26,6 +26,8 @@ export interface StoryActionInput {
   tonePreference: "gen_z" | "professional" | "casual";
   isHighGravity?: boolean;
   sourceUrl?: string;
+  /** For follow_up actions — the user's specific question about the story */
+  userQuestion?: string;
 }
 
 export interface StoryActionOutput {
@@ -55,6 +57,22 @@ function buildFallback(input: StoryActionInput): StoryActionOutput {
         text: [input.chatOpening, input.keyPoints[0]].filter(Boolean).join(" "),
         sourceUrl: input.sourceUrl,
       };
+    case "follow_up": {
+      // Answer from existing story fields — context-grounded, no placeholder copy
+      const q = (input.userQuestion ?? "").toLowerCase();
+      if (q.includes("why") || q.includes("matter") || q.includes("important")) {
+        return { text: input.whyItMatters };
+      }
+      if (q.includes("more") || q.includes("background") || q.includes("context") || q.includes("backstory")) {
+        const pts = input.keyPoints.filter(Boolean);
+        return { text: pts.length >= 2 ? `${pts[0]} ${pts[1]}` : input.chatOpening };
+      }
+      if (q.includes("next") || q.includes("happen") || q.includes("now")) {
+        return { text: input.keyPoints[2] ?? input.whyItMatters };
+      }
+      // Default: first key point, which is the most concrete fact from the story
+      return { text: input.keyPoints[0] ?? input.whyItMatters };
+    }
   }
 }
 
@@ -72,6 +90,8 @@ function buildSystemPrompt(action: StoryActionType, isHighGravity: boolean): str
       "Write 1–2 sentences explaining why this story matters to everyday people. Be concrete and specific, not abstract. Focus on real-world impact.",
     hear_more:
       "Write 3–4 sentences of additional context. Explain one piece of background that helps the reader understand this story better. Stay conversational and clear.",
+    follow_up:
+      "The user has asked a follow-up question about this news story. Answer their specific question in 2–3 clear, grounded sentences using only information from the story context provided. Be direct and informative. Do not open with 'Okay so', 'Well,', 'Good question', or similar filler.",
   };
 
   return [
@@ -97,8 +117,11 @@ export async function runStoryAction(
     `Headline: ${input.headline}`,
     `Story opening: ${input.chatOpening}`,
     `Why it matters: ${input.whyItMatters}`,
-    `Key points: ${input.keyPoints.slice(0, 2).join("; ")}`,
+    `Key points: ${input.keyPoints.slice(0, 3).join("; ")}`,
     `Tone: ${input.tonePreference}`,
+    ...(input.action === "follow_up" && input.userQuestion
+      ? [`\nUser's question: ${input.userQuestion}`]
+      : []),
   ].join("\n");
 
   try {

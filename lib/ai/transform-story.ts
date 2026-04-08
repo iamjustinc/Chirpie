@@ -37,11 +37,11 @@ const MAX_TOKENS = 1024;
 
 const MOCK_OPENERS: Record<TransformInput["tone_preference"], string> = {
   gen_z:
-    "okay so no bc this is actually kind of a big deal 👀 here's the short version of what's going on and why it matters fr",
+    "here's what's actually going on with this one —",
   professional:
-    "This development warrants attention. The following summary outlines the key details and their broader implications.",
+    "Here is a brief summary of the key details and their significance.",
   casual:
-    "So this one is pretty interesting — here's the quick version of what's going on and why it's worth a few minutes of your time.",
+    "Here's what's happening and why it's worth knowing —",
 };
 
 function buildMockOutput(input: TransformInput): TransformOutput {

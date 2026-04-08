@@ -8,6 +8,7 @@
  *   one_line_recap  → 12–18 word single-sentence summary (supports "Skim")
  *   why_it_matters  → 1–2 sentences on real-world impact (supports "Understand")
  *   hear_more       → 3–4 sentences of deeper context (supports "Go deeper")
+ *   follow_up       → 2–3 sentences answering a specific user question about the story
  *
  * Always returns { text: string, sourceUrl?: string }.
  * Falls back to derivations from story fields if AI fails.
@@ -20,7 +21,7 @@ import { runStoryAction } from "@/lib/ai/story-action";
 // ─── Request schema ───────────────────────────────────────────────────────────
 
 const StoryActionRequestSchema = z.object({
-  action: z.enum(["one_line_recap", "why_it_matters", "hear_more"]),
+  action: z.enum(["one_line_recap", "why_it_matters", "hear_more", "follow_up"]),
   headline: z.string().min(1, "headline is required"),
   chatOpening: z.string().min(1, "chatOpening is required"),
   whyItMatters: z.string().min(1, "whyItMatters is required"),
@@ -28,6 +29,8 @@ const StoryActionRequestSchema = z.object({
   tonePreference: z.enum(["gen_z", "professional", "casual"]).default("casual"),
   isHighGravity: z.boolean().optional(),
   sourceUrl: z.string().optional(),
+  /** Required for follow_up action — the user's typed question */
+  userQuestion: z.string().optional(),
 });
 
 // ─── Route handler ────────────────────────────────────────────────────────────

@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Send } from "lucide-react";
 import Image from "next/image";
-import type { Category, ThreadItem } from "@/lib/types";
+import type { Category, ThreadItem, Story, Tone } from "@/lib/types";
 import { DigestIntroMessage } from "./DigestIntroMessage";
 import { StoryBubble } from "./StoryBubble";
 import { TypingIndicator } from "./TypingIndicator";
@@ -149,7 +149,7 @@ export function ConversationThread({
     onStoryChipSelect?.(chip.id);
   }
 
-  function submitMessage(text: string) {
+  async function submitMessage(text: string) {
     if (!text.trim()) return;
 
     const userMsg: Message = {
@@ -163,15 +163,17 @@ export function ConversationThread({
     setIsTypingReply(true);
     setShowEndPrompts(false);
 
-    setTimeout(() => {
-      setIsTypingReply(false);
-      const reply: Message = {
-        id: `msg-${Date.now()}-reply`,
-        role: "assistant",
-        text: getMockReply(text),
-      };
-      setExtraMessages((prev) => [...prev, reply]);
-    }, 1600);
+    // Use the last story in the thread for grounded context
+    const lastStoryItem = [...threadItems].reverse().find((i) => i.type === "story");
+    const story = lastStoryItem?.type === "story" ? lastStoryItem.story : null;
+
+    const replyText = await fetchFollowUpReply(text.trim(), story);
+
+    setIsTypingReply(false);
+    setExtraMessages((prev) => [
+      ...prev,
+      { id: `msg-${Date.now()}-reply`, role: "assistant", text: replyText },
+    ]);
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -536,35 +538,62 @@ export function ConversationThread({
   );
 }
 
-// ─── Mock reply generator ─────────────────────────────────────────────────────
+// ─── Follow-up reply helper ───────────────────────────────────────────────────
+// Calls /api/story-action with the user's question and last-seen story context.
+// Falls back to local derivation if the API call fails or no story is in scope.
 
-function getMockReply(prompt: string): string {
-  const p = prompt.toLowerCase();
+function storyToneToApiTone(tone: Tone): "gen_z" | "professional" | "casual" {
+  const map: Record<Tone, "gen_z" | "professional" | "casual"> = {
+    "gen-z": "gen_z",
+    professional: "professional",
+    casual: "casual",
+    minimal: "casual",
+  };
+  return map[tone] ?? "casual";
+}
 
-  if (p.includes("fed") || p.includes("rate") || p.includes("interest") || p.includes("market angle") || p.includes("consumer impact")) {
-    return "A rate hold means the Fed is keeping borrowing costs where they are — expensive. The hope was for a cut to ease mortgage and loan rates, but inflation in services is still sticky. Next decision is in about six weeks.";
+function localFollowUpReply(question: string, story: Story | null): string {
+  if (!story) {
+    return "Pick a topic above and I can answer questions about that story.";
   }
-  if (p.includes("beyoncé") || p.includes("album") || p.includes("music") || p.includes("fans") || p.includes("pop")) {
-    return "The album blends country, R&B, and orchestral pop — it's a genre statement as much as a music release. No traditional promo cycle, which made the surprise drop hit even harder. Three visual films are rolling out through the week.";
+  const q = question.toLowerCase();
+  if (q.includes("why") || q.includes("matter") || q.includes("important")) {
+    return story.whyItMatters;
   }
-  if (p.includes("climate") || p.includes("agreement") || p.includes("binding") || p.includes("broader context")) {
-    return "Binding means countries that miss targets face trade consequences — tariffs, restricted market access. That's different from past agreements where failure had no real penalty. The first review period is 2027, so we'll see if it holds.";
+  if (q.includes("more") || q.includes("background") || q.includes("context") || q.includes("backstory")) {
+    const pts = story.keyPoints.filter(Boolean);
+    return pts.length >= 2 ? `${pts[0]} ${pts[1]}` : story.chatOpening;
   }
-  if (p.includes("gpt") || p.includes("openai") || p.includes("ai") || p.includes("product details") || p.includes("what's next for")) {
-    return "GPT-5 combines text, voice, and live video in one model — no switching between modes. The main unlock is real-time vision: you can point your camera at something and ask questions live. It's in rollout for Plus subscribers starting today.";
+  if (q.includes("next") || q.includes("happen")) {
+    return story.keyPoints[2] ?? story.whyItMatters;
   }
-  if (p.includes("backstory") || p.includes("company context") || p.includes("who's involved")) {
-    return "Good question — the background here is the key context. Once the live AI layer is fully connected, I'll give you a real deep-dive. For now, the source links in each story are your best next step.";
-  }
-  if (p.includes("recap") || p.includes("key takeaway") || p.includes("why does this matter")) {
-    return "The short version: this one has real downstream effects. I'd dig into that with you — once the live AI layer is connected, I'll give you a full breakdown. The source links are a good starting point.";
-  }
-  if (p.includes("deeper") || p.includes("more")) {
-    return "Sure — which story do you want to explore further? The climate summit, the Fed decision, or the Beyoncé album drop?";
-  }
-  if (p.includes("tomorrow") || p.includes("morning") || p.includes("next")) {
-    return "Your next digest is scheduled for tomorrow morning. I'll have fresh stories ready — same vibe, all new.";
-  }
+  return story.keyPoints[0] ?? story.whyItMatters;
+}
 
-  return "Good question. I'd dig into that with you — once the live AI layer is connected, I'll give you a real answer. For now, the source links in each story are your best next step.";
+async function fetchFollowUpReply(question: string, story: Story | null): Promise<string> {
+  if (!story) return localFollowUpReply(question, null);
+
+  try {
+    const res = await fetch("/api/story-action", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "follow_up",
+        headline: story.headline,
+        chatOpening: story.chatOpening,
+        whyItMatters: story.whyItMatters,
+        keyPoints: story.keyPoints,
+        tonePreference: storyToneToApiTone(story.tone),
+        userQuestion: question,
+        sourceUrl: story.sources[0]?.url,
+      }),
+    });
+
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json() as { text?: string };
+    const text = data?.text?.trim();
+    return text || localFollowUpReply(question, story);
+  } catch {
+    return localFollowUpReply(question, story);
+  }
 }
