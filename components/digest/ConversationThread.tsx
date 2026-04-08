@@ -10,8 +10,6 @@ import { StoryBubble } from "./StoryBubble";
 import { TypingIndicator } from "./TypingIndicator";
 import { useStagedStatus } from "@/lib/hooks/use-staged-status";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
 interface Message {
   id: string;
   role: "user" | "assistant";
@@ -24,9 +22,6 @@ interface TopicOption {
   icon: string;
 }
 
-/**
- * A specific story suggestion chip (distinct from broad topic chips).
- */
 export interface StoryChip {
   id: string;
   label: string;
@@ -35,36 +30,23 @@ export interface StoryChip {
 interface ConversationThreadProps {
   greeting: string;
   threadItems: ThreadItem[];
-  /**
-   * True while a topic/story fetch is in progress. Shows typing indicator.
-   */
   isLoading: boolean;
-  /**
-   * Broad category options — shown in the initial selection bubble and as a
-   * persistent compact switcher row once the thread has items.
-   */
   topicOptions?: TopicOption[];
   onTopicSelect?: (category: Category) => void;
-  /**
-   * Specific story suggestion chips shown in the initial selection bubble.
-   */
   storyChips?: StoryChip[];
   onStoryChipSelect?: (id: string) => void;
-  /**
-   * The next story to suggest after the user has seen one story.
-   */
   nextSuggestionChip?: StoryChip;
+  onNextStory?: () => Promise<void> | void;
+  onTypedComposerIntent?: (text: string) => Promise<void> | void;
 }
-
-// ─── Contextual in-thread continuation prompts ────────────────────────────────
 
 const CONTEXTUAL_PROMPTS: Partial<Record<Category, [string, string, string]>> = {
   "pop-culture": ["what's the backstory?", "another pop update", "what are fans saying?"],
-  finance:       ["market angle?", "company context?", "consumer impact?"],
-  technology:    ["product details?", "why does this matter?", "what's next for this?"],
-  general:       ["quick recap?", "broader context?", "key takeaway?"],
-  world:         ["regional context?", "who's involved?", "global reaction?"],
-  sports:        ["player breakdown?", "what's the impact?", "who won?"],
+  finance: ["market angle?", "company context?", "consumer impact?"],
+  technology: ["product details?", "why does this matter?", "what's next for this?"],
+  general: ["quick recap?", "broader context?", "key takeaway?"],
+  world: ["regional context?", "who's involved?", "global reaction?"],
+  sports: ["player breakdown?", "what's the impact?", "who won?"],
 };
 
 const DEFAULT_CONTEXTUAL_PROMPTS: [string, string, string] = [
@@ -78,8 +60,6 @@ function getContextualPrompts(category: Category | undefined): [string, string, 
   return CONTEXTUAL_PROMPTS[category] ?? DEFAULT_CONTEXTUAL_PROMPTS;
 }
 
-// ─── Bird avatar (reused in several places) ───────────────────────────────────
-
 function BirdAvatar({ className = "w-13 h-13 mt-1" }: { className?: string }) {
   return (
     <div
@@ -87,12 +67,113 @@ function BirdAvatar({ className = "w-13 h-13 mt-1" }: { className?: string }) {
       style={{ backgroundColor: "var(--chirpie-muted)" }}
       aria-hidden="true"
     >
-      <Image src="/bird-logo.png" alt="" width={44} height={44} className="w-11 h-11 object-contain" />
+      <Image
+        src="/bird-logo.png"
+        alt=""
+        width={44}
+        height={44}
+        className="w-11 h-11 object-contain"
+      />
     </div>
   );
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
+function normalizeText(text: string): string {
+  return text.trim().toLowerCase();
+}
+
+function isNextStoryRequest(text: string): boolean {
+  const q = normalizeText(text);
+  return [
+    "next",
+    "next news",
+    "new news",
+    "another one",
+    "another story",
+    "next story",
+    "more news",
+    "more",
+    "next please",
+  ].includes(q);
+}
+
+function isExplicitTopicOrEntitySearch(text: string): boolean {
+  const q = normalizeText(text);
+  return (
+    q.startsWith("tell me about ") ||
+    q.startsWith("what's happening with ") ||
+    q.startsWith("whats happening with ") ||
+    q.startsWith("news about ") ||
+    q.startsWith("show me ")
+  );
+}
+
+function storyToneToApiTone(tone: Tone): "gen_z" | "professional" | "casual" {
+  const map: Record<Tone, "gen_z" | "professional" | "casual"> = {
+    "gen-z": "gen_z",
+    professional: "professional",
+    casual: "casual",
+    minimal: "casual",
+  };
+  return map[tone] ?? "casual";
+}
+
+function localFollowUpReply(question: string, story: Story | null): string {
+  if (!story) {
+    return "Pick a topic above and I can answer questions about that story.";
+  }
+
+  const q = question.toLowerCase();
+
+  if (q.includes("why") || q.includes("matter") || q.includes("important")) {
+    return story.whyItMatters;
+  }
+
+  if (
+    q.includes("more") ||
+    q.includes("background") ||
+    q.includes("context") ||
+    q.includes("backstory")
+  ) {
+    const pts = story.keyPoints.filter(Boolean);
+    return pts.length >= 2 ? `${pts[0]} ${pts[1]}` : story.chatOpening;
+  }
+
+  if (q.includes("next") || q.includes("happen")) {
+    return story.keyPoints[2] ?? story.whyItMatters;
+  }
+
+  return story.keyPoints[0] ?? story.whyItMatters;
+}
+
+async function fetchFollowUpReply(question: string, story: Story | null): Promise<string> {
+  if (!story) return localFollowUpReply(question, null);
+
+  try {
+    const res = await fetch("/api/story-action", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "follow_up",
+        headline: story.headline,
+        chatOpening: story.chatOpening,
+        whyItMatters: story.whyItMatters,
+        keyPoints: story.keyPoints,
+        tonePreference: storyToneToApiTone(story.tone),
+        userQuestion: question,
+        sourceUrl: story.sources[0]?.url,
+      }),
+    });
+
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    const data = (await res.json()) as { text?: string };
+    const text = data?.text?.trim();
+    return text || localFollowUpReply(question, story);
+  } catch {
+    return localFollowUpReply(question, story);
+  }
+}
 
 export function ConversationThread({
   greeting,
@@ -103,43 +184,36 @@ export function ConversationThread({
   storyChips,
   onStoryChipSelect,
   nextSuggestionChip,
+  onNextStory,
+  onTypedComposerIntent,
 }: ConversationThreadProps) {
   const hasItems = threadItems.length > 0;
   const isGuidedMode = !!(topicOptions?.length && onTopicSelect);
 
-  // Derive active category from the last story in the thread
   const lastStory = [...threadItems].reverse().find((i) => i.type === "story");
   const storyCategory: Category | undefined =
     lastStory?.type === "story" ? lastStory.story.category : undefined;
 
   const contextualPrompts = getContextualPrompts(storyCategory);
 
-  // ── Internal follow-up conversation (typed messages after stories load) ──────
   const [extraMessages, setExtraMessages] = useState<Message[]>([]);
   const [isTypingReply, setIsTypingReply] = useState(false);
   const [input, setInput] = useState("");
-
-  // ── Post-story continuation prompts ──────────────────────────────────────────
   const [showEndPrompts, setShowEndPrompts] = useState(false);
 
-  // Show end prompts 2.5s after load finishes, reset whenever thread changes or loading starts
   useEffect(() => {
     setShowEndPrompts(false);
     if (isLoading || !hasItems) return;
     const t = setTimeout(() => setShowEndPrompts(true), 2500);
     return () => clearTimeout(t);
-  }, [isLoading, hasItems, threadItems.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isLoading, hasItems, threadItems.length]);
 
-  // ── Auto-scroll ───────────────────────────────────────────────────────────────
   const bottomRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [threadItems, extraMessages, isLoading, isTypingReply]);
 
-  // Staged status text shown while Chirpie is "thinking"
   const stagedStatus = useStagedStatus(isLoading);
-
-  // ── Handlers ─────────────────────────────────────────────────────────────────
 
   function handleTopicChipSelect(option: TopicOption) {
     onTopicSelect?.(option.id);
@@ -152,10 +226,12 @@ export function ConversationThread({
   async function submitMessage(text: string) {
     if (!text.trim()) return;
 
+    const cleanText = text.trim();
+
     const userMsg: Message = {
       id: `msg-${Date.now()}`,
       role: "user",
-      text: text.trim(),
+      text: cleanText,
     };
 
     setExtraMessages((prev) => [...prev, userMsg]);
@@ -163,17 +239,33 @@ export function ConversationThread({
     setIsTypingReply(true);
     setShowEndPrompts(false);
 
-    // Use the last story in the thread for grounded context
-    const lastStoryItem = [...threadItems].reverse().find((i) => i.type === "story");
-    const story = lastStoryItem?.type === "story" ? lastStoryItem.story : null;
+    const normalized = normalizeText(cleanText);
 
-    const replyText = await fetchFollowUpReply(text.trim(), story);
+    try {
+      if (isNextStoryRequest(normalized) && onNextStory) {
+        await onNextStory();
+        return;
+      }
 
-    setIsTypingReply(false);
-    setExtraMessages((prev) => [
-      ...prev,
-      { id: `msg-${Date.now()}-reply`, role: "assistant", text: replyText },
-    ]);
+      if (isExplicitTopicOrEntitySearch(normalized) && onTypedComposerIntent) {
+        await onTypedComposerIntent(cleanText);
+        return;
+      }
+
+      const story = lastStory?.type === "story" ? lastStory.story : null;
+      const replyText = await fetchFollowUpReply(cleanText, story);
+
+      setExtraMessages((prev) => [
+        ...prev,
+        {
+          id: `msg-${Date.now()}-reply`,
+          role: "assistant",
+          text: replyText,
+        },
+      ]);
+    } finally {
+      setIsTypingReply(false);
+    }
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -181,94 +273,86 @@ export function ConversationThread({
     submitMessage(input);
   }
 
-  // ── Render ────────────────────────────────────────────────────────────────────
-
   return (
     <div className="flex flex-col h-full">
-      {/* ── Thread scroll area ─────────────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto scrollbar-hide px-4 py-6 space-y-5">
-        {/* Greeting */}
         <DigestIntroMessage greeting={greeting} />
 
-        {/* ── Initial guided selection — exits smoothly when first topic chosen ─── */}
         <AnimatePresence>
-        {isGuidedMode && !hasItems && (
-          <motion.div
-            initial={{ opacity: 0, y: 14 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8, transition: { duration: 0.22 } }}
-            transition={{ duration: 0.45, delay: 0.55, ease: [0.22, 1, 0.36, 1] }}
-            className="flex items-start gap-2.5"
-          >
-            <BirdAvatar />
-            <div
-              className="px-4 py-3 rounded-2xl rounded-bl-sm"
-              style={{
-                backgroundColor: "var(--chirpie-bubble-assistant)",
-                color: "var(--chirpie-bubble-assistant-foreground)",
-                boxShadow: "0 3px 14px 0 var(--chirpie-shadow)",
-              }}
+          {isGuidedMode && !hasItems && (
+            <motion.div
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8, transition: { duration: 0.22 } }}
+              transition={{ duration: 0.45, delay: 0.55, ease: [0.22, 1, 0.36, 1] }}
+              className="flex items-start gap-2.5"
             >
-              <p className="text-sm mb-3">what would you like to talk about today?</p>
+              <BirdAvatar />
+              <div
+                className="px-4 py-3 rounded-2xl rounded-bl-sm"
+                style={{
+                  backgroundColor: "var(--chirpie-bubble-assistant)",
+                  color: "var(--chirpie-bubble-assistant-foreground)",
+                  boxShadow: "0 3px 14px 0 var(--chirpie-shadow)",
+                }}
+              >
+                <p className="text-sm mb-3">what would you like to talk about today?</p>
 
-              {/* Broad topic chips */}
-              <div className="flex flex-wrap gap-2">
-                {topicOptions!.map((opt) => (
-                  <button
-                    key={opt.id}
-                    onClick={() => handleTopicChipSelect(opt)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-pill border text-xs font-medium transition-all hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    style={{
-                      backgroundColor: "var(--chirpie-chip)",
-                      color: "var(--chirpie-chip-foreground)",
-                      borderColor: "var(--chirpie-border)",
-                    }}
-                  >
-                    <span>{opt.icon}</span>
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-
-              {/* Story suggestion chips */}
-              <AnimatePresence>
-                {storyChips && storyChips.length > 0 && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 6 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.35, delay: 0.1 }}
-                    className="flex flex-wrap gap-2 mt-2.5 pt-2.5 border-t"
-                    style={{ borderColor: "var(--chirpie-border)" }}
-                  >
-                    <span
-                      className="w-full text-[10px] font-semibold uppercase tracking-wider mb-0.5"
-                      style={{ color: "var(--chirpie-muted-foreground)" }}
+                <div className="flex flex-wrap gap-2">
+                  {topicOptions!.map((opt) => (
+                    <button
+                      key={opt.id}
+                      onClick={() => handleTopicChipSelect(opt)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-pill border text-xs font-medium transition-all hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      style={{
+                        backgroundColor: "var(--chirpie-chip)",
+                        color: "var(--chirpie-chip-foreground)",
+                        borderColor: "var(--chirpie-border)",
+                      }}
                     >
-                      Or pick a story
-                    </span>
-                    {storyChips.map((chip) => (
-                      <button
-                        key={chip.id}
-                        onClick={() => handleStoryChipSelect(chip)}
-                        className="px-3 py-1.5 rounded-pill border text-xs font-medium transition-all hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        style={{
-                          backgroundColor: "var(--chirpie-background)",
-                          color: "var(--chirpie-foreground)",
-                          borderColor: "var(--chirpie-border)",
-                        }}
+                      <span>{opt.icon}</span>
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+
+                <AnimatePresence>
+                  {storyChips && storyChips.length > 0 && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.35, delay: 0.1 }}
+                      className="flex flex-wrap gap-2 mt-2.5 pt-2.5 border-t"
+                      style={{ borderColor: "var(--chirpie-border)" }}
+                    >
+                      <span
+                        className="w-full text-[10px] font-semibold uppercase tracking-wider mb-0.5"
+                        style={{ color: "var(--chirpie-muted-foreground)" }}
                       >
-                        {chip.label}
-                      </button>
-                    ))}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          </motion.div>
-        )}
+                        Or pick a story
+                      </span>
+                      {storyChips.map((chip) => (
+                        <button
+                          key={chip.id}
+                          onClick={() => handleStoryChipSelect(chip)}
+                          className="px-3 py-1.5 rounded-pill border text-xs font-medium transition-all hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          style={{
+                            backgroundColor: "var(--chirpie-background)",
+                            color: "var(--chirpie-foreground)",
+                            borderColor: "var(--chirpie-border)",
+                          }}
+                        >
+                          {chip.label}
+                        </button>
+                      ))}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </motion.div>
+          )}
         </AnimatePresence>
 
-        {/* ── Thread items ───────────────────────────────────────────────────────── */}
         <AnimatePresence initial={false}>
           {threadItems.map((item) => {
             if (item.type === "user-message") {
@@ -334,7 +418,6 @@ export function ConversationThread({
           })}
         </AnimatePresence>
 
-        {/* ── Typing indicator (parent-controlled fetch) ─────────────────────────── */}
         <AnimatePresence>
           {isLoading && (
             <motion.div
@@ -358,7 +441,6 @@ export function ConversationThread({
           )}
         </AnimatePresence>
 
-        {/* ── Post-story continuation prompts ────────────────────────────────────── */}
         <AnimatePresence>
           {showEndPrompts && !isLoading && (
             <motion.div
@@ -368,34 +450,26 @@ export function ConversationThread({
               className="flex items-start gap-2.5"
             >
               <BirdAvatar />
-              <div
-                className="px-4 py-3 rounded-2xl rounded-bl-sm text-sm"
-                style={{
-                  backgroundColor: "var(--chirpie-bubble-assistant)",
-                  color: "var(--chirpie-bubble-assistant-foreground)",
-                  boxShadow: "0 3px 14px 0 var(--chirpie-shadow)",
-                }}
-              >
-                <p className="mb-2">want to go deeper on this one?</p>
+              <div className="flex flex-col gap-2">
                 <div className="flex flex-wrap gap-2">
-                  {contextualPrompts.slice(0, 2).map((p) => (
+                  {contextualPrompts.map((prompt) => (
                     <button
-                      key={p}
-                      onClick={() => submitMessage(p)}
-                      className="px-3 py-1 rounded-pill border text-xs font-medium transition-all hover:opacity-80"
+                      key={prompt}
+                      onClick={() => submitMessage(prompt)}
+                      className="px-3 py-1.5 rounded-pill text-xs font-medium transition-all hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       style={{
                         backgroundColor: "var(--chirpie-chip)",
                         color: "var(--chirpie-chip-foreground)",
-                        borderColor: "var(--chirpie-border)",
                       }}
                     >
-                      {p}
+                      {prompt}
                     </button>
                   ))}
+
                   {nextSuggestionChip && (
                     <button
-                      onClick={() => handleStoryChipSelect(nextSuggestionChip)}
-                      className="px-3 py-1 rounded-pill text-xs font-semibold transition-all hover:opacity-80"
+                      onClick={() => submitMessage("new news")}
+                      className="px-3 py-1.5 rounded-pill text-xs font-medium transition-all hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       style={{
                         backgroundColor: "var(--chirpie-accent)",
                         color: "var(--chirpie-accent-foreground)",
@@ -410,7 +484,6 @@ export function ConversationThread({
           )}
         </AnimatePresence>
 
-        {/* ── Internal follow-up messages (typed by user) ───────────────────────── */}
         <AnimatePresence initial={false}>
           {extraMessages.map((msg) => (
             <motion.div
@@ -445,14 +518,9 @@ export function ConversationThread({
           ))}
         </AnimatePresence>
 
-        {/* Typing indicator for internal replies */}
         <AnimatePresence>
           {isTypingReply && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-            >
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
               <TypingIndicator />
             </motion.div>
           )}
@@ -461,7 +529,6 @@ export function ConversationThread({
         <div ref={bottomRef} />
       </div>
 
-      {/* ── Persistent topic switcher — visible once thread has items ─────────────── */}
       <AnimatePresence>
         {hasItems && isGuidedMode && (
           <motion.div
@@ -497,7 +564,6 @@ export function ConversationThread({
         )}
       </AnimatePresence>
 
-      {/* ── Composer ──────────────────────────────────────────────────────────────── */}
       <div
         className="border-t px-4 py-3 flex-shrink-0"
         style={{
@@ -510,7 +576,7 @@ export function ConversationThread({
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask a follow-up..."
+            placeholder="Ask a follow-up."
             className="flex-1 px-4 py-2.5 rounded-pill border text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-all"
             style={{
               backgroundColor: "var(--chirpie-input)",
@@ -536,64 +602,4 @@ export function ConversationThread({
       </div>
     </div>
   );
-}
-
-// ─── Follow-up reply helper ───────────────────────────────────────────────────
-// Calls /api/story-action with the user's question and last-seen story context.
-// Falls back to local derivation if the API call fails or no story is in scope.
-
-function storyToneToApiTone(tone: Tone): "gen_z" | "professional" | "casual" {
-  const map: Record<Tone, "gen_z" | "professional" | "casual"> = {
-    "gen-z": "gen_z",
-    professional: "professional",
-    casual: "casual",
-    minimal: "casual",
-  };
-  return map[tone] ?? "casual";
-}
-
-function localFollowUpReply(question: string, story: Story | null): string {
-  if (!story) {
-    return "Pick a topic above and I can answer questions about that story.";
-  }
-  const q = question.toLowerCase();
-  if (q.includes("why") || q.includes("matter") || q.includes("important")) {
-    return story.whyItMatters;
-  }
-  if (q.includes("more") || q.includes("background") || q.includes("context") || q.includes("backstory")) {
-    const pts = story.keyPoints.filter(Boolean);
-    return pts.length >= 2 ? `${pts[0]} ${pts[1]}` : story.chatOpening;
-  }
-  if (q.includes("next") || q.includes("happen")) {
-    return story.keyPoints[2] ?? story.whyItMatters;
-  }
-  return story.keyPoints[0] ?? story.whyItMatters;
-}
-
-async function fetchFollowUpReply(question: string, story: Story | null): Promise<string> {
-  if (!story) return localFollowUpReply(question, null);
-
-  try {
-    const res = await fetch("/api/story-action", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "follow_up",
-        headline: story.headline,
-        chatOpening: story.chatOpening,
-        whyItMatters: story.whyItMatters,
-        keyPoints: story.keyPoints,
-        tonePreference: storyToneToApiTone(story.tone),
-        userQuestion: question,
-        sourceUrl: story.sources[0]?.url,
-      }),
-    });
-
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json() as { text?: string };
-    const text = data?.text?.trim();
-    return text || localFollowUpReply(question, story);
-  } catch {
-    return localFollowUpReply(question, story);
-  }
 }
