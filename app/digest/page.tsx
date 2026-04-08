@@ -41,6 +41,17 @@ function buildCuratedChips(): { chips: StoryChip[]; map: Map<string, RawStory> }
 
 const { chips: INITIAL_CHIPS, map: INITIAL_MAP } = buildCuratedChips();
 
+// ─── Monotonic ID counter ─────────────────────────────────────────────────────
+// All ThreadItems must have unique, stable keys. Date.now() risks collisions
+// when two items are appended within the same millisecond (common during async
+// batching). A module-level counter guarantees uniqueness for the page lifetime.
+let _itemSeq = 0;
+function nid(prefix: string): string {
+  return `${prefix}-${++_itemSeq}`;
+}
+
+// ─── Intent helpers ───────────────────────────────────────────────────────────
+
 function normalizeText(text: string): string {
   return text.trim().toLowerCase();
 }
@@ -60,11 +71,7 @@ function categoryMatchesQuery(query: string): Category | null {
     return "pop-culture";
   }
 
-  if (
-    q === "general" ||
-    q === "news" ||
-    q === "general news"
-  ) {
+  if (q === "general" || q === "news" || q === "general news") {
     return "general";
   }
 
@@ -80,27 +87,15 @@ function categoryMatchesQuery(query: string): Category | null {
     return "finance";
   }
 
-  if (
-    q === "sports" ||
-    q.includes("game") ||
-    q.includes("match")
-  ) {
+  if (q === "sports" || q.includes("game") || q.includes("match")) {
     return "sports";
   }
 
-  if (
-    q === "tech" ||
-    q === "technology" ||
-    q.includes("startup")
-  ) {
+  if (q === "tech" || q === "technology" || q.includes("startup")) {
     return "technology";
   }
 
-  if (
-    q === "world" ||
-    q.includes("global") ||
-    q.includes("international")
-  ) {
+  if (q === "world" || q.includes("global") || q.includes("international")) {
     return "world";
   }
 
@@ -139,13 +134,64 @@ function isTopicSearchRequest(text: string): boolean {
     q.startsWith("could you tell me about ") ||
     q.startsWith("what's happening with ") ||
     q.startsWith("whats happening with ") ||
+    q.startsWith("what is happening with ") ||
     q.startsWith("news about ") ||
     q.startsWith("show me ") ||
+    q.startsWith("search for ") ||
+    q.startsWith("find me ") ||
     q.includes("related to ") ||
     q.includes("anything about ") ||
     q.includes("something about ") ||
     q.includes("how about ")
   );
+}
+
+/**
+ * Returns true for bare multi-word entity/topic phrases that were NOT caught by
+ * the explicit-prefix check above and are clearly NOT follow-up questions.
+ *
+ * Examples that should return true:
+ *   "house tour by sabrina carpenter"
+ *   "taylor swift eras tour"
+ *   "nvidia earnings"
+ *
+ * Examples that should return false (stay as follow-ups):
+ *   "why does this matter?" → starts with question word
+ *   "what's the background?" → ends with ?
+ *   "quick recap?" → ends with ? + has follow-up word
+ *   "broader context?" → ends with ?
+ *   "tell me more" → starts with "tell me"
+ */
+function looksLikeSearchQuery(text: string): boolean {
+  const q = normalizeText(text);
+  const words = q.split(/\s+/).filter(Boolean);
+
+  // Need at least 2 words — single words go through category matching or next-story
+  if (words.length < 2) return false;
+
+  // Questions (by leading word) → follow-up, not search
+  const QUESTION_STARTERS = [
+    "why", "what", "how", "is", "are", "does", "will", "would",
+    "who", "when", "where", "should", "could", "can",
+  ];
+  if (QUESTION_STARTERS.includes(words[0])) return false;
+
+  // "tell me ..." prefix — "tell me about X" is caught by isTopicSearchRequest;
+  // anything else ("tell me more") should be a follow-up
+  if (q.startsWith("tell me")) return false;
+
+  // Ends with ? → almost certainly a follow-up question
+  if (q.endsWith("?")) return false;
+
+  // Follow-up indicator words — these phrases belong in the story conversation
+  const FOLLOW_UP_INDICATORS = [
+    "matter", "happen", "background", "context", "recap",
+    "explain", "summary", "summarize", "elaborate", "dig deeper",
+  ];
+  if (FOLLOW_UP_INDICATORS.some((w) => q.includes(w))) return false;
+
+  // Passes all gates → likely a bare entity/topic search
+  return true;
 }
 
 function extractTopicQuery(text: string, lastSearchTopic?: string | null): string {
@@ -156,8 +202,11 @@ function extractTopicQuery(text: string, lastSearchTopic?: string | null): strin
     .replace(/^can you tell me about\s+/i, "")
     .replace(/^could you tell me about\s+/i, "")
     .replace(/^what'?s happening with\s+/i, "")
+    .replace(/^what is happening with\s+/i, "")
     .replace(/^news about\s+/i, "")
     .replace(/^show me\s+/i, "")
+    .replace(/^search for\s+/i, "")
+    .replace(/^find me\s+/i, "")
     .trim();
 
   if (direct !== raw && direct.length > 0) {
@@ -180,8 +229,11 @@ function extractTopicQuery(text: string, lastSearchTopic?: string | null): strin
     return fragment;
   }
 
+  // Bare query (no prefix stripped) — use as-is
   return raw;
 }
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DigestPage() {
   const [prefs] = useState(() => loadUserPrefs());
@@ -237,16 +289,34 @@ export default function DigestPage() {
     return storyChips[0];
   }, [storyChips, selectedChipId]);
 
+  // ── appendAssistantMessage: push a plain text bubble into the thread ──────────
   const appendAssistantMessage = useCallback((text: string) => {
     setThreadItems((prev) => [
       ...prev,
       {
         type: "assistant-message",
-        id: `msg-${Date.now()}`,
+        id: nid("msg"),
         text,
       },
     ]);
   }, []);
+
+  // ── handleFollowUpMessage: called by ConversationThread for follow-up pairs ───
+  // Routes both the user bubble and the assistant reply into threadItems so they
+  // appear in true chronological order alongside any stories fetched after them.
+  const handleFollowUpMessage = useCallback(
+    (role: "user" | "assistant", text: string) => {
+      setThreadItems((prev) => [
+        ...prev,
+        {
+          type: role === "user" ? "user-message" : "assistant-message",
+          id: nid(`follow-${role}`),
+          text,
+        } as ThreadItem,
+      ]);
+    },
+    []
+  );
 
   const getLastStoryCategory = useCallback((): Category | null => {
     const lastStory = [...threadItemsRef.current].reverse().find((i) => i.type === "story");
@@ -264,7 +334,7 @@ export default function DigestPage() {
 
       const userMsg: ThreadItem = {
         type: "user-message",
-        id: `user-${Date.now()}`,
+        id: nid("user"),
         text: userText,
       };
 
@@ -287,14 +357,14 @@ export default function DigestPage() {
         const { story } = await fetchStoryTransform(
           rawStory,
           apiTone,
-          `topic-${category}-${Date.now()}`
+          nid(`topic-${category}`)
         );
 
         setThreadItems((prev) => [
           ...prev,
           {
             type: "story",
-            id: `story-${Date.now()}`,
+            id: nid("story"),
             story,
           },
         ]);
@@ -317,7 +387,7 @@ export default function DigestPage() {
 
       const userMsg: ThreadItem = {
         type: "user-message",
-        id: `user-${Date.now()}`,
+        id: nid("user"),
         text: customUserText ?? chip.label,
       };
 
@@ -329,14 +399,14 @@ export default function DigestPage() {
         const { story } = await fetchStoryTransform(
           rawStory,
           apiTone,
-          `story-${id}-${Date.now()}`
+          nid(`story-${id}`)
         );
 
         setThreadItems((prev) => [
           ...prev,
           {
             type: "story",
-            id: `story-${Date.now()}`,
+            id: nid("story"),
             story,
           },
         ]);
@@ -372,7 +442,7 @@ export default function DigestPage() {
 
       const userMsg: ThreadItem = {
         type: "user-message",
-        id: `user-${Date.now()}`,
+        id: nid("user"),
         text: userText,
       };
 
@@ -399,14 +469,14 @@ export default function DigestPage() {
         const { story } = await fetchStoryTransform(
           rawStory,
           apiTone,
-          `search-${Date.now()}`
+          nid("search")
         );
 
         setThreadItems((prev) => [
           ...prev,
           {
             type: "story",
-            id: `story-${Date.now()}`,
+            id: nid("story"),
             story,
           },
         ]);
@@ -423,42 +493,69 @@ export default function DigestPage() {
   const handleTypedComposerIntent = useCallback(
     async (text: string): Promise<boolean> => {
       const normalized = normalizeText(text);
-      console.log("[composer] raw", text);
+      console.log("[composer] raw:", JSON.stringify(text));
 
+      // 1. Explicit search prefix ("tell me about X", "what's happening with X", etc.)
       if (isTopicSearchRequest(normalized)) {
-        console.log("[composer] route", "topic_search");
+        console.log("[composer] route → topic_search (prefix)");
         await handleGuardianTopicSearch(text);
         return true;
       }
 
+      // 2. Navigation ("next news", "more", "another one", etc.)
       if (isNextStoryRequest(normalized)) {
-        console.log("[composer] route", "next_story");
+        console.log("[composer] route → next_story");
         await handleNextStory(text);
         return true;
       }
 
+      // 3. Category keyword ("stock", "finance", "tech", etc.)
+      //    If the user is already reading a story in that category, advance to
+      //    the next story rather than reloading the same one.
       const matchedCategory = categoryMatchesQuery(normalized);
       if (matchedCategory) {
-        console.log("[composer] route", "topic_switch", matchedCategory);
-        await handleTopicSelect(matchedCategory, text);
+        const lastCat = getLastStoryCategory();
+        if (lastCat === matchedCategory) {
+          // Same category already active — advance rather than repeat
+          console.log("[composer] route → next_story (same-category dedup)", matchedCategory);
+          await handleNextStory(text);
+        } else {
+          console.log("[composer] route → topic_switch", matchedCategory);
+          await handleTopicSelect(matchedCategory, text);
+        }
         return true;
       }
 
+      // 4. Contextual "another X update" (e.g., "another pop update")
       const lastCategory = getLastStoryCategory();
       if (
         normalized.includes("another") &&
         normalized.includes("update") &&
         lastCategory
       ) {
-        console.log("[composer] route", "contextual_next_story", lastCategory);
+        console.log("[composer] route → contextual_next_story", lastCategory);
         await handleNextStory(text);
         return true;
       }
 
-      console.log("[composer] route", "story_follow_up");
+      // 5. Bare entity/topic query — multi-word phrase that doesn't look like a
+      //    follow-up question ("house tour by sabrina carpenter", "nvidia earnings")
+      if (looksLikeSearchQuery(text)) {
+        console.log("[composer] route → topic_search (bare entity)");
+        await handleGuardianTopicSearch(text);
+        return true;
+      }
+
+      // 6. Falls through → ConversationThread handles it as a story follow-up
+      console.log("[composer] route → story_follow_up");
       return false;
     },
-    [handleGuardianTopicSearch, handleNextStory, handleTopicSelect, getLastStoryCategory]
+    [
+      handleGuardianTopicSearch,
+      handleNextStory,
+      handleTopicSelect,
+      getLastStoryCategory,
+    ]
   );
 
   return (
@@ -475,6 +572,7 @@ export default function DigestPage() {
           nextSuggestionChip={nextSuggestionChip}
           onNextStory={handleNextStory}
           onTypedComposerIntent={handleTypedComposerIntent}
+          onFollowUpMessage={handleFollowUpMessage}
         />
       </div>
     </AppShell>

@@ -10,12 +10,6 @@ import { StoryBubble } from "./StoryBubble";
 import { TypingIndicator } from "./TypingIndicator";
 import { useStagedStatus } from "@/lib/hooks/use-staged-status";
 
-interface Message {
-  id: string;
-  role: "user" | "assistant";
-  text: string;
-}
-
 interface TopicOption {
   id: Category;
   label: string;
@@ -38,6 +32,11 @@ interface ConversationThreadProps {
   nextSuggestionChip?: StoryChip;
   onNextStory?: (customUserText?: string) => Promise<void> | void;
   onTypedComposerIntent?: (text: string) => Promise<boolean> | boolean;
+  /**
+   * Called for each follow-up message (user question + assistant reply) so the
+   * parent can append them to threadItems, keeping the unified chronological order.
+   */
+  onFollowUpMessage?: (role: "user" | "assistant", text: string) => void;
 }
 
 const CONTEXTUAL_PROMPTS: Partial<Record<Category, [string, string, string]>> = {
@@ -156,6 +155,7 @@ export function ConversationThread({
   nextSuggestionChip,
   onNextStory,
   onTypedComposerIntent,
+  onFollowUpMessage,
 }: ConversationThreadProps) {
   const hasItems = threadItems.length > 0;
   const isGuidedMode = !!(topicOptions?.length && onTopicSelect);
@@ -166,10 +166,16 @@ export function ConversationThread({
 
   const contextualPrompts = getContextualPrompts(storyCategory);
 
-  const [extraMessages, setExtraMessages] = useState<Message[]>([]);
+  // isTypingReply: shows a local typing indicator during follow-up API calls.
+  // Follow-up messages themselves are pushed into threadItems via onFollowUpMessage
+  // so they stay in chronological order alongside stories and searches.
   const [isTypingReply, setIsTypingReply] = useState(false);
   const [input, setInput] = useState("");
   const [showEndPrompts, setShowEndPrompts] = useState(false);
+
+  // Guard against concurrent submitMessage calls (e.g. rapid chip taps).
+  // A ref (not state) is used so changes never trigger a re-render cycle.
+  const isSubmittingRef = useRef(false);
 
   useEffect(() => {
     setShowEndPrompts(false);
@@ -181,7 +187,7 @@ export function ConversationThread({
   const bottomRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [threadItems, extraMessages, isLoading, isTypingReply]);
+  }, [threadItems, isLoading, isTypingReply]);
 
   const stagedStatus = useStagedStatus(isLoading);
 
@@ -195,41 +201,28 @@ export function ConversationThread({
 
   async function submitMessage(text: string) {
     if (!text.trim()) return;
-  
+
     const cleanText = text.trim();
-  
     setInput("");
-    setIsTypingReply(true);
     setShowEndPrompts(false);
-  
+
+    // Let the parent router decide first (search, navigation, topic switch).
+    // If the parent handles it, its own isLoading indicator takes over — we
+    // must NOT also set isTypingReply or push an extra user bubble here.
+    const handled = await onTypedComposerIntent?.(cleanText);
+    if (handled) return;
+
+    // Pure follow-up path: push user message + eventual reply into threadItems
+    // via onFollowUpMessage so they stay in correct chronological position
+    // relative to any future stories added by the parent.
+    setIsTypingReply(true);
     try {
-      const handled = await onTypedComposerIntent?.(cleanText);
-  
-      // If the parent handled it (topic search / next story / topic switch),
-      // do NOT also add a local extra user bubble here.
-      if (handled) {
-        return;
-      }
-  
-      const userMsg: Message = {
-        id: `msg-${Date.now()}`,
-        role: "user",
-        text: cleanText,
-      };
-  
-      setExtraMessages((prev) => [...prev, userMsg]);
-  
+      onFollowUpMessage?.("user", cleanText);
+
       const story = lastStory?.type === "story" ? lastStory.story : null;
       const replyText = await fetchFollowUpReply(cleanText, story);
-  
-      setExtraMessages((prev) => [
-        ...prev,
-        {
-          id: `msg-${Date.now()}-reply`,
-          role: "assistant",
-          text: replyText,
-        },
-      ]);
+
+      onFollowUpMessage?.("assistant", replyText);
     } finally {
       setIsTypingReply(false);
     }
@@ -320,6 +313,9 @@ export function ConversationThread({
           )}
         </AnimatePresence>
 
+        {/* ── All messages in one unified chronological block ──────────────────────
+            threadItems contains: user-messages, stories, assistant-messages, and
+            follow-up pairs — all appended in arrival order by the parent. */}
         <AnimatePresence initial={false}>
           {threadItems.map((item) => {
             if (item.type === "user-message") {
@@ -385,6 +381,7 @@ export function ConversationThread({
           })}
         </AnimatePresence>
 
+        {/* Parent-controlled loading indicator (topic switch / story search) */}
         <AnimatePresence>
           {isLoading && (
             <motion.div
@@ -408,6 +405,7 @@ export function ConversationThread({
           )}
         </AnimatePresence>
 
+        {/* Post-story continuation prompts */}
         <AnimatePresence>
           {showEndPrompts && !isLoading && (
             <motion.div
@@ -451,40 +449,7 @@ export function ConversationThread({
           )}
         </AnimatePresence>
 
-        <AnimatePresence initial={false}>
-          {extraMessages.map((msg) => (
-            <motion.div
-              key={msg.id}
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.38, ease: [0.22, 1, 0.36, 1] }}
-              className={`flex ${msg.role === "user" ? "justify-end" : "items-start gap-2.5"}`}
-            >
-              {msg.role === "assistant" && <BirdAvatar />}
-              <div
-                className="max-w-[80%] px-4 py-3 text-sm leading-relaxed"
-                style={{
-                  backgroundColor:
-                    msg.role === "user"
-                      ? "var(--chirpie-bubble-user)"
-                      : "var(--chirpie-bubble-assistant)",
-                  color:
-                    msg.role === "user"
-                      ? "var(--chirpie-bubble-user-foreground)"
-                      : "var(--chirpie-bubble-assistant-foreground)",
-                  borderRadius:
-                    msg.role === "user"
-                      ? "1rem 1rem 0.25rem 1rem"
-                      : "1rem 1rem 1rem 0.25rem",
-                  boxShadow: "0 3px 14px 0 var(--chirpie-shadow)",
-                }}
-              >
-                {msg.text}
-              </div>
-            </motion.div>
-          ))}
-        </AnimatePresence>
-
+        {/* Follow-up typing indicator (local, only during /api/story-action calls) */}
         <AnimatePresence>
           {isTypingReply && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>

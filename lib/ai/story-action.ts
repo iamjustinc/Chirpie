@@ -7,15 +7,11 @@
  * smaller (1–4 sentences) and the system prompt is action-specific.
  *
  * Falls back to derivations from existing story fields when:
- *   - OPENAI is absent
+ *   - OPENAI_API_KEY is absent
  *   - The API call fails or times out
  */
 
 import OpenAI from "openai";
-
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -44,8 +40,17 @@ export interface StoryActionOutput {
 
 // ─── Model config ─────────────────────────────────────────────────────────────
 
-const MODEL = "gpt-5-mini";
+// gpt-4o-mini: fast, cheap, good enough for 1–4 sentence outputs
+const MODEL = process.env.OPENAI_ACTION_MODEL?.trim() || "gpt-4o-mini";
 const MAX_OUTPUT_TOKENS = 220;
+
+// ─── Lazy client ──────────────────────────────────────────────────────────────
+
+function getClient(): OpenAI | null {
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  if (!apiKey) return null;
+  return new OpenAI({ apiKey });
+}
 
 // ─── Fallback derivation ──────────────────────────────────────────────────────
 
@@ -122,35 +127,24 @@ function buildSystemPrompt(
   ].join("\n\n");
 }
 
-// ─── OpenAI helper ────────────────────────────────────────────────────────────
+// ─── OpenAI chat completions call ─────────────────────────────────────────────
 
-async function generateText(systemPrompt: string, userMessage: string): Promise<string> {
-  const response = await client.responses.create({
+async function generateText(
+  client: OpenAI,
+  systemPrompt: string,
+  userMessage: string
+): Promise<string> {
+  // Uses chat.completions — the standard OpenAI SDK method for GPT models
+  const response = await client.chat.completions.create({
     model: MODEL,
-    max_output_tokens: MAX_OUTPUT_TOKENS,
-    input: [
-      {
-        role: "system",
-        content: [
-          {
-            type: "input_text",
-            text: systemPrompt,
-          },
-        ],
-      },
-      {
-        role: "user",
-        content: [
-          {
-            type: "input_text",
-            text: userMessage,
-          },
-        ],
-      },
+    max_tokens: MAX_OUTPUT_TOKENS,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userMessage },
     ],
   });
 
-  const text = response.output_text?.trim();
+  const text = response.choices?.[0]?.message?.content?.trim() ?? "";
 
   if (!text) {
     throw new Error("[Chirpie] OpenAI returned empty story action output");
@@ -164,15 +158,17 @@ async function generateText(systemPrompt: string, userMessage: string): Promise<
 export async function runStoryAction(
   input: StoryActionInput
 ): Promise<StoryActionOutput> {
-  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  const client = getClient();
 
   console.log("[Chirpie][story-action] config", {
     provider: "openai",
-    hasKey: Boolean(apiKey),
+    hasKey: Boolean(client),
+    model: MODEL,
     action: input.action,
   });
 
-  if (!apiKey) {
+  if (!client) {
+    console.warn("[Chirpie][story-action] OPENAI_API_KEY not set — using fallback");
     return buildFallback(input);
   }
 
@@ -188,14 +184,18 @@ export async function runStoryAction(
   ].join("\n");
 
   try {
-    console.log("[Chirpie][story-action] calling OpenAI", {
+    console.log("[Chirpie][story-action] calling OpenAI chat.completions", {
       action: input.action,
+      model: MODEL,
     });
 
     const text = await generateText(
+      client,
       buildSystemPrompt(input.action, input.isHighGravity ?? false),
       userMessage
     );
+
+    console.log("[Chirpie][story-action] success", { action: input.action });
 
     return {
       text,
