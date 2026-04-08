@@ -14,7 +14,7 @@ import { sanitizeTransformOutput } from "@/lib/ai/sanitize-transform";
 import { transformOutputToStory, buildSingleStoryDigest } from "@/lib/adapters/transform-to-story";
 import { loadUserPrefs, toneToApiTone, getToneGreeting } from "@/lib/user-prefs";
 import type { ContentCategory } from "@/lib/content/types";
-import type { Category, Digest, Story } from "@/lib/types";
+import type { Category, Digest, Story, ThreadItem } from "@/lib/types";
 
 // ─── Category switcher display labels ────────────────────────────────────────
 
@@ -383,9 +383,17 @@ export default function DemoPage() {
         */}
         <ConversationThread
           key={`${currentDigest.id}-${mode}`}
-          digest={currentDigest}
-          pacedMode
-          storyCategory={activeUICategory}
+          greeting={greeting}
+          threadItems={
+            mode === "loading"
+              ? []
+              : currentDigest.items.map<ThreadItem>((item) => ({
+                  type: "story",
+                  id: item.id,
+                  story: item.story,
+                }))
+          }
+          isLoading={mode === "loading"}
         />
       </div>
     </div>

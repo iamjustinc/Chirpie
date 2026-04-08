@@ -1,21 +1,17 @@
 "use client";
 
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { AppShell } from "@/components/shell/AppShell";
 import { ConversationThread } from "@/components/digest/ConversationThread";
 import type { StoryChip } from "@/components/digest/ConversationThread";
-import { mockDigest, mockStories } from "@/lib/mock-data";
 import { loadUserPrefs, getToneGreeting, toneToApiTone } from "@/lib/user-prefs";
-import { buildSingleStoryDigest } from "@/lib/adapters/transform-to-story";
 import { fetchStoryTransform } from "@/lib/demo/fetch-story-transform";
 import { getLeadStoryForCategory } from "@/lib/content/get-demo-stories";
-import { sanitizeTransformOutput } from "@/lib/ai/sanitize-transform";
-import { transformOutputToStory } from "@/lib/adapters/transform-to-story";
 import { uiCategoryToContentCategory, contentCategoryToUICategory } from "@/lib/content/normalize-story";
 import { getCategoryLabel } from "@/lib/utils";
 import { CURATED_STORIES } from "@/lib/content/sources/local-curated";
 import type { ContentCategory, RawStory } from "@/lib/content/types";
-import type { Category, Digest } from "@/lib/types";
+import type { Category, ThreadItem } from "@/lib/types";
 import type { StorySuggestion } from "@/app/api/story-suggestions/route";
 
 // ─── Category icons (for topic chips) ────────────────────────────────────────
@@ -36,9 +32,8 @@ function buildCuratedChips(): { chips: StoryChip[]; map: Map<string, RawStory> }
   const chips: StoryChip[] = [];
   const map = new Map<string, RawStory>();
 
-  // CURATED_STORIES are already ordered well; pick best one per category
   for (const s of CURATED_STORIES) {
-    map.set(s.id, s); // always register all stories in the map
+    map.set(s.id, s);
     if (seen.has(s.category)) continue;
     seen.add(s.category);
     chips.push({ id: s.id, label: s.chipLabel ?? s.headline.slice(0, 33) });
@@ -48,41 +43,6 @@ function buildCuratedChips(): { chips: StoryChip[]; map: Map<string, RawStory> }
 }
 
 const { chips: INITIAL_CHIPS, map: INITIAL_MAP } = buildCuratedChips();
-
-// ─── Instant mock fallback (no network needed) ────────────────────────────────
-
-const MOCK_BY_CATEGORY: Partial<Record<Category, (typeof mockStories)[number]>> = {
-  "finance":     mockStories[0],
-  "pop-culture": mockStories[1],
-  "general":     mockStories[2],
-};
-
-function buildInstantDigest(category: Category, greeting: string): Digest {
-  const mockStory = MOCK_BY_CATEGORY[category];
-  if (mockStory) {
-    return buildSingleStoryDigest(
-      mockStory,
-      `topic-${category}`,
-      greeting,
-      `here's what's happening in ${getCategoryLabel(category).toLowerCase()}.`
-    );
-  }
-  const contentCat = uiCategoryToContentCategory(category);
-  if (contentCat) {
-    const rawStory = getLeadStoryForCategory(contentCat);
-    if (rawStory) {
-      const sanitized = sanitizeTransformOutput({}, rawStory);
-      const story = transformOutputToStory(sanitized, rawStory, "casual", `topic-${category}`);
-      return buildSingleStoryDigest(
-        story,
-        `topic-${category}`,
-        greeting,
-        `here's what's happening in ${getCategoryLabel(category).toLowerCase()}.`
-      );
-    }
-  }
-  return { ...mockDigest, greeting };
-}
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
@@ -100,66 +60,72 @@ export default function DigestPage() {
   }));
 
   // ── Story chips — pre-populated from curated immediately, updated async ──────
-  // INITIAL_CHIPS is computed at module load: no async wait, chips show on first render.
   const [storyChips, setStoryChips] = useState<StoryChip[]>(INITIAL_CHIPS);
   const [storyMap,   setStoryMap]   = useState<Map<string, RawStory>>(INITIAL_MAP);
 
-  // Try to upgrade to live news stories in the background (best-effort)
   useEffect(() => {
     fetch("/api/story-suggestions")
       .then((r) => r.ok ? r.json() : null)
       .then((data: StorySuggestion[] | null) => {
-        if (!data?.length) return; // keep curated chips if no live data
+        if (!data?.length) return;
         setStoryChips(data.map(({ id, label }) => ({ id, label })));
         setStoryMap(new Map(data.map(({ id, rawStory }) => [id, rawStory])));
       })
       .catch(() => { /* silent — curated chips remain */ });
   }, []);
 
+  // ── Thread state (append-only — never replaced) ───────────────────────────────
+  const [threadItems, setThreadItems] = useState<ThreadItem[]>([]);
+  const [isThreadLoading, setIsThreadLoading] = useState(false);
+
+  // Stable ref to threadItems so callbacks don't go stale
+  const threadItemsRef = useRef(threadItems);
+  threadItemsRef.current = threadItems;
+
   // ── Which chip was last selected → drives "next" suggestion ─────────────────
   const [selectedChipId, setSelectedChipId] = useState<string | null>(null);
-  // Active UI category — for contextual deep-dive prompts after a story loads
-  const [activeCategory, setActiveCategory] = useState<Category | undefined>(undefined);
 
-  // Next suggestion = first chip that wasn't the one just selected.
-  // For topic-chip selections (no specific chip id), suggest the first story chip.
   const nextSuggestionChip = useMemo((): StoryChip | undefined => {
     if (!storyChips.length) return undefined;
     if (selectedChipId) return storyChips.find((c) => c.id !== selectedChipId);
     return storyChips[0];
   }, [storyChips, selectedChipId]);
 
-  // ── Digest state ─────────────────────────────────────────────────────────────
-  const [digest, setDigest] = useState<Digest>(() => ({
-    ...mockDigest,
-    id: "digest-guided",
-    items: [],
-    greeting,
-    intro: "",
-  }));
-
   // ── Topic chip selection ──────────────────────────────────────────────────────
   const handleTopicSelect = useCallback(
     async (category: Category) => {
-      setSelectedChipId(null); // topic selected — next suggestion = first story chip
-      setActiveCategory(category);
+      const label = getCategoryLabel(category).toLowerCase();
+      const currentItems = threadItemsRef.current;
+      const hasStories = currentItems.some((i) => i.type === "story");
+      const userText = hasStories ? `let's switch to ${label}` : `let's talk about ${label}`;
+
+      const userMsg: ThreadItem = {
+        type: "user-message",
+        id: `user-${Date.now()}`,
+        text: userText,
+      };
+
+      setSelectedChipId(null);
+      setThreadItems((prev) => [...prev, userMsg]);
+      setIsThreadLoading(true);
 
       const contentCat = uiCategoryToContentCategory(category);
       const rawStory   = contentCat ? getLeadStoryForCategory(contentCat) : null;
 
       if (rawStory) {
         const { story } = await fetchStoryTransform(rawStory, apiTone, `topic-${category}`);
-        setDigest(buildSingleStoryDigest(
+        setIsThreadLoading(false);
+        setThreadItems((prev) => [...prev, {
+          type: "story",
+          id: `story-${Date.now()}`,
           story,
-          `topic-${category}`,
-          greeting,
-          `here's what's happening in ${getCategoryLabel(category).toLowerCase()}.`
-        ));
+        }]);
       } else {
-        setTimeout(() => setDigest(buildInstantDigest(category, greeting)), 900);
+        // No raw story available — end loading after a short delay
+        setTimeout(() => setIsThreadLoading(false), 900);
       }
     },
-    [apiTone, greeting]
+    [apiTone]
   );
 
   // ── Story chip selection ──────────────────────────────────────────────────────
@@ -169,27 +135,34 @@ export default function DigestPage() {
       const chip     = storyChips.find((c) => c.id === id);
       if (!rawStory || !chip) return;
 
+      const userMsg: ThreadItem = {
+        type: "user-message",
+        id: `user-${Date.now()}`,
+        text: chip.label,
+      };
+
       setSelectedChipId(id);
-      setActiveCategory(contentCategoryToUICategory(rawStory.category));
+      setThreadItems((prev) => [...prev, userMsg]);
+      setIsThreadLoading(true);
 
       const { story } = await fetchStoryTransform(rawStory, apiTone, `story-${id}`);
-      setDigest(buildSingleStoryDigest(
+      setIsThreadLoading(false);
+      setThreadItems((prev) => [...prev, {
+        type: "story",
+        id: `story-${Date.now()}`,
         story,
-        `story-${id}`,
-        greeting,
-        `here's the latest on "${chip.label.toLowerCase()}".`
-      ));
+      }]);
     },
-    [storyMap, storyChips, apiTone, greeting]
+    [storyMap, storyChips, apiTone]
   );
 
   return (
     <AppShell maxWidth="md" padTop={true} className="!px-0">
       <div className="h-[calc(100vh-56px)] flex flex-col">
         <ConversationThread
-          digest={digest}
-          pacedMode
-          storyCategory={activeCategory}
+          greeting={greeting}
+          threadItems={threadItems}
+          isLoading={isThreadLoading}
           topicOptions={topicOptions}
           onTopicSelect={handleTopicSelect}
           storyChips={storyChips}

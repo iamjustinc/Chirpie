@@ -111,6 +111,13 @@ export interface ThemeDefinition {
   previewColors: string[];
 }
 
+// ─── Thread Items (append-only continuous chat model) ────────────────────────
+
+export type ThreadItem =
+  | { type: "user-message"; id: string; text: string }
+  | { type: "story"; id: string; story: Story }
+  | { type: "assistant-message"; id: string; text: string };
+
 // ─── Onboarding ───────────────────────────────────────────────────────────────
 
 export type OnboardingStep =

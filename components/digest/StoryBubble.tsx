@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Bookmark, Share2, ExternalLink, ChevronDown, ChevronUp } from "lucide-react";
+import Image from "next/image";
 import type { Story } from "@/lib/types";
 import { SourceButtons, SourceLine } from "./SourceButtons";
 import { FollowUpChips } from "./FollowUpChips";
@@ -34,11 +35,11 @@ export function StoryBubble({ story, onFollowUp, delay = 0 }: StoryBubbleProps) 
     >
       {/* Chirpie avatar */}
       <div
-        className="w-7 h-7 rounded-full flex items-center justify-center text-sm flex-shrink-0 mt-1"
+        className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-1 overflow-hidden"
         style={{ backgroundColor: "var(--chirpie-muted)" }}
         aria-hidden="true"
       >
-        🐦
+        <Image src="/bird-logo.png" alt="" width={24} height={24} className="w-5 h-5 object-contain" />
       </div>
 
       {/* Bubble */}
