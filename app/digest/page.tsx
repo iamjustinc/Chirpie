@@ -60,12 +60,19 @@ function categoryMatchesQuery(query: string): Category | null {
     return "pop-culture";
   }
 
-  if (q === "general" || q === "news" || q === "general news") {
+  if (
+    q === "general" ||
+    q === "news" ||
+    q === "general news"
+  ) {
     return "general";
   }
 
   if (
     q === "finance" ||
+    q === "stock" ||
+    q === "stocks" ||
+    q.includes("stock market") ||
     q.includes("market") ||
     q.includes("stocks") ||
     q.includes("money")
@@ -128,6 +135,8 @@ function isTopicSearchRequest(text: string): boolean {
 
   return (
     q.startsWith("tell me about ") ||
+    q.startsWith("can you tell me about ") ||
+    q.startsWith("could you tell me about ") ||
     q.startsWith("what's happening with ") ||
     q.startsWith("whats happening with ") ||
     q.startsWith("news about ") ||
@@ -144,6 +153,8 @@ function extractTopicQuery(text: string, lastSearchTopic?: string | null): strin
 
   const direct = raw
     .replace(/^tell me about\s+/i, "")
+    .replace(/^can you tell me about\s+/i, "")
+    .replace(/^could you tell me about\s+/i, "")
     .replace(/^what'?s happening with\s+/i, "")
     .replace(/^news about\s+/i, "")
     .replace(/^show me\s+/i, "")
