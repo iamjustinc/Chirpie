@@ -195,30 +195,33 @@ export function ConversationThread({
 
   async function submitMessage(text: string) {
     if (!text.trim()) return;
-
+  
     const cleanText = text.trim();
-
-    const userMsg: Message = {
-      id: `msg-${Date.now()}`,
-      role: "user",
-      text: cleanText,
-    };
-
-    setExtraMessages((prev) => [...prev, userMsg]);
+  
     setInput("");
     setIsTypingReply(true);
     setShowEndPrompts(false);
-
+  
     try {
       const handled = await onTypedComposerIntent?.(cleanText);
-
+  
+      // If the parent handled it (topic search / next story / topic switch),
+      // do NOT also add a local extra user bubble here.
       if (handled) {
         return;
       }
-
+  
+      const userMsg: Message = {
+        id: `msg-${Date.now()}`,
+        role: "user",
+        text: cleanText,
+      };
+  
+      setExtraMessages((prev) => [...prev, userMsg]);
+  
       const story = lastStory?.type === "story" ? lastStory.story : null;
       const replyText = await fetchFollowUpReply(cleanText, story);
-
+  
       setExtraMessages((prev) => [
         ...prev,
         {

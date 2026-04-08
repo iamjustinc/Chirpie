@@ -60,11 +60,7 @@ function categoryMatchesQuery(query: string): Category | null {
     return "pop-culture";
   }
 
-  if (
-    q === "general" ||
-    q === "news" ||
-    q === "general news"
-  ) {
+  if (q === "general" || q === "news" || q === "general news") {
     return "general";
   }
 
@@ -135,18 +131,45 @@ function isTopicSearchRequest(text: string): boolean {
     q.startsWith("what's happening with ") ||
     q.startsWith("whats happening with ") ||
     q.startsWith("news about ") ||
-    q.startsWith("show me ")
+    q.startsWith("show me ") ||
+    q.includes("related to ") ||
+    q.includes("anything about ") ||
+    q.includes("something about ") ||
+    q.includes("how about ")
   );
 }
 
-function extractTopicQuery(text: string): string {
-  return text
-    .trim()
+function extractTopicQuery(text: string, lastSearchTopic?: string | null): string {
+  const raw = text.trim();
+
+  const direct = raw
     .replace(/^tell me about\s+/i, "")
     .replace(/^what'?s happening with\s+/i, "")
     .replace(/^news about\s+/i, "")
     .replace(/^show me\s+/i, "")
     .trim();
+
+  if (direct !== raw && direct.length > 0) {
+    return direct;
+  }
+
+  const relatedMatch =
+    raw.match(/related to\s+(.+)$/i) ||
+    raw.match(/anything about\s+(.+)$/i) ||
+    raw.match(/something about\s+(.+)$/i) ||
+    raw.match(/how about\s+(.+)$/i);
+
+  if (relatedMatch?.[1]) {
+    const fragment = relatedMatch[1].trim();
+
+    if (lastSearchTopic && /^(her|him|them|it)\b/i.test(fragment)) {
+      return `${lastSearchTopic} ${fragment}`.trim();
+    }
+
+    return fragment;
+  }
+
+  return raw;
 }
 
 export default function DigestPage() {
@@ -163,10 +186,17 @@ export default function DigestPage() {
 
   const [storyChips, setStoryChips] = useState<StoryChip[]>(INITIAL_CHIPS);
   const [storyMap, setStoryMap] = useState<Map<string, RawStory>>(INITIAL_MAP);
-
   const [liveByCategory, setLiveByCategory] = useState<Map<ContentCategory, RawStory>>(new Map());
+  const [threadItems, setThreadItems] = useState<ThreadItem[]>([]);
+  const [isThreadLoading, setIsThreadLoading] = useState(false);
+  const [selectedChipId, setSelectedChipId] = useState<string | null>(null);
+  const [lastSearchTopic, setLastSearchTopic] = useState<string | null>(null);
+
   const liveByCategoryRef = useRef(liveByCategory);
   liveByCategoryRef.current = liveByCategory;
+
+  const threadItemsRef = useRef(threadItems);
+  threadItemsRef.current = threadItems;
 
   useEffect(() => {
     fetch("/api/story-suggestions")
@@ -189,14 +219,6 @@ export default function DigestPage() {
         // keep curated fallback
       });
   }, []);
-
-  const [threadItems, setThreadItems] = useState<ThreadItem[]>([]);
-  const [isThreadLoading, setIsThreadLoading] = useState(false);
-
-  const threadItemsRef = useRef(threadItems);
-  threadItemsRef.current = threadItems;
-
-  const [selectedChipId, setSelectedChipId] = useState<string | null>(null);
 
   const nextSuggestionChip = useMemo((): StoryChip | undefined => {
     if (!storyChips.length) return undefined;
@@ -240,7 +262,6 @@ export default function DigestPage() {
       setIsThreadLoading(true);
 
       const contentCat = uiCategoryToContentCategory(category);
-
       const rawStory = contentCat
         ? liveByCategoryRef.current.get(contentCat) ?? getLeadStoryForCategory(contentCat)
         : null;
@@ -331,7 +352,7 @@ export default function DigestPage() {
 
   const handleGuardianTopicSearch = useCallback(
     async (userText: string) => {
-      const query = extractTopicQuery(userText);
+      const query = extractTopicQuery(userText, lastSearchTopic);
 
       if (!query) {
         appendAssistantMessage("try asking for a person, topic, or subject you want news about.");
@@ -362,6 +383,8 @@ export default function DigestPage() {
           return;
         }
 
+        setLastSearchTopic(query);
+
         const { story } = await fetchStoryTransform(
           rawStory,
           apiTone,
@@ -383,7 +406,7 @@ export default function DigestPage() {
         setIsThreadLoading(false);
       }
     },
-    [apiTone, appendAssistantMessage]
+    [apiTone, appendAssistantMessage, lastSearchTopic]
   );
 
   const handleTypedComposerIntent = useCallback(

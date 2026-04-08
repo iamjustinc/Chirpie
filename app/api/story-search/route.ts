@@ -60,6 +60,29 @@ function inferCategory(query: string): ContentCategory {
   return "general";
 }
 
+function tokenizeQuery(query: string): string[] {
+  return query
+    .toLowerCase()
+    .replace(/[^\w\s]/g, " ")
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 3);
+}
+
+function computeRelevance(query: string, headline: string, summary: string): number {
+  const tokens = tokenizeQuery(query);
+  const haystack = `${headline} ${summary}`.toLowerCase();
+
+  let score = 0;
+
+  for (const token of tokens) {
+    if (headline.toLowerCase().includes(token)) score += 3;
+    else if (haystack.includes(token)) score += 1;
+  }
+
+  return score;
+}
+
 export async function GET(req: NextRequest) {
   const apiKey = process.env.GUARDIAN_API_KEY?.trim();
   const query = req.nextUrl.searchParams.get("q")?.trim();
@@ -81,9 +104,13 @@ export async function GET(req: NextRequest) {
   const url = new URL(GUARDIAN_BASE_URL);
   url.searchParams.set("api-key", apiKey);
   url.searchParams.set("q", query);
-  url.searchParams.set("page-size", "5");
+  url.searchParams.set("page-size", "10");
   url.searchParams.set("show-fields", "headline,trailText,byline,thumbnail");
-  url.searchParams.set("order-by", "newest");
+  url.searchParams.set("order-by", "relevance");
+
+  const thirtyDaysAgo = new Date();
+thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+url.searchParams.set("from-date", thirtyDaysAgo.toISOString().slice(0, 10));
 
   try {
     console.info(`[Chirpie/story-search] Searching Guardian for "${query}"`);
@@ -101,7 +128,7 @@ export async function GET(req: NextRequest) {
       ? data.response.results
       : [];
 
-    const stories: RawStory[] = [];
+    const mapped: Array<RawStory & { _score: number }> = [];
 
     for (let index = 0; index < results.length; index++) {
       const item = results[index];
@@ -119,7 +146,9 @@ export async function GET(req: NextRequest) {
 
       if (!headline || !articleUrl) continue;
 
-      const story: RawStory = {
+      const score = computeRelevance(query, headline, summary);
+
+      mapped.push({
         id: `guardian-search-${item.id ?? index}`,
         category: inferCategory(query),
         headline,
@@ -130,13 +159,19 @@ export async function GET(req: NextRequest) {
         },
         chipLabel: headline.slice(0, 35),
         priority: 80,
-      };
-
-      stories.push(story);
+        _score: score,
+      });
     }
 
+    mapped.sort((a, b) => b._score - a._score);
+
+    const stories: RawStory[] = mapped
+      .filter((story) => story._score > 0)
+      .slice(0, 5)
+      .map(({ _score, ...story }) => story);
+
     console.info(
-      `[Chirpie/story-search] "${query}" returned ${stories.length} mapped stories`
+      `[Chirpie/story-search] "${query}" returned ${stories.length} relevant stories`
     );
 
     return NextResponse.json({ query, stories });

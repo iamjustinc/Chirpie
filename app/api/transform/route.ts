@@ -2,36 +2,23 @@
  * POST /api/transform
  *
  * Accepts a raw news object and returns a Chirpie-formatted story JSON.
- *
- * Request body:
- *   {
- *     headline: string
- *     summary: string
- *     source: { name: string; url: string }
- *     tone_preference: "gen_z" | "professional" | "casual"
- *   }
- *
- * Success response (200):
- *   {
- *     headline: string
- *     chat_opening: string
- *     why_it_matters: string
- *     key_points: [string, string, string]
- *     follow_up_prompts: [string, string, string]
- *   }
- *
- * Error responses:
- *   400 → invalid / missing request fields (Zod errors surfaced safely)
- *   500 → transform failed (no internal stack trace exposed)
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { ZodError } from "zod";
 import { TransformInputSchema } from "@/lib/ai/schemas/chirpie-transform";
-import { transformStory } from "@/lib/ai/transform-story";
+import transformStoryDefault, {
+  transformStory as transformStoryNamed,
+} from "@/lib/ai/transform-story";
+
+const transformStory =
+  typeof transformStoryNamed === "function"
+    ? transformStoryNamed
+    : typeof transformStoryDefault === "function"
+    ? transformStoryDefault
+    : null;
 
 export async function POST(req: NextRequest) {
-  // ── Parse request body ──────────────────────────────────────────────────────
   let body: unknown;
   try {
     body = await req.json();
@@ -42,7 +29,6 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // ── Validate input schema ───────────────────────────────────────────────────
   let input;
   try {
     input = TransformInputSchema.parse(body);
@@ -51,7 +37,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error: "Invalid request body.",
-          details: err.errors.map((e) => ({
+          details: err.issues.map((e) => ({
             field: e.path.join("."),
             message: e.message,
           })),
@@ -59,20 +45,25 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+
     return NextResponse.json(
       { error: "Could not read request body." },
       { status: 400 }
     );
   }
 
-  // ── Run transform ───────────────────────────────────────────────────────────
+  if (!transformStory) {
+    console.error("[Chirpie API /api/transform] transformStory import is invalid");
+    return NextResponse.json(
+      { error: "Transform module is not available." },
+      { status: 500 }
+    );
+  }
+
   try {
     const result = await transformStory(input);
     return NextResponse.json(result, { status: 200 });
   } catch (err) {
-    // Bare log first so the raw Error object (including stack) is always
-    // fully visible in the terminal, regardless of how the runtime formats
-    // multi-argument console.error calls.
     console.error(err);
     console.error("[Chirpie API /api/transform] Transform error above ↑");
     return NextResponse.json(
@@ -82,7 +73,6 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// Reject unsupported HTTP methods gracefully
 export async function GET() {
   return NextResponse.json(
     { error: "Method not allowed. Use POST." },

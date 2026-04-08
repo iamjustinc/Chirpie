@@ -1,19 +1,5 @@
 /**
- * transform-story.ts
- *
- * The core AI transformation layer for Chirpie.
- *
- * Flow:
- *   1. Run gravity-check on headline + summary
- *   2. Build user message (raw input + is_high_gravity flag)
- *   3. Call OpenAI with CHIRPIE_TRANSFORM_SYSTEM_PROMPT
- *   4. Parse + validate output with Zod
- *   5. If validation fails → one repair attempt
- *   6. If repair fails → return grounded mock output
- *
- * Fallback:
- *   If OPENAI_API_KEY is absent, return a deterministic mock output so the
- *   app can be developed and demoed locally without AI credentials.
+ * lib/ai/transform-story.ts
  */
 
 import OpenAI from "openai";
@@ -26,16 +12,14 @@ import {
 import { gravityCheck } from "./gravity-check";
 import { CHIRPIE_TRANSFORM_SYSTEM_PROMPT } from "./prompts/chirpie-transform-system";
 
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-
-// ─── Model config ─────────────────────────────────────────────────────────────
-
-const MODEL = "gpt-5-mini";
+const MODEL = process.env.OPENAI_TRANSFORM_MODEL?.trim() || "gpt-4o";
 const MAX_OUTPUT_TOKENS = 900;
 
-// ─── Mock fallback ────────────────────────────────────────────────────────────
+function getOpenAIClient(): OpenAI | null {
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  if (!apiKey) return null;
+  return new OpenAI({ apiKey });
+}
 
 const MOCK_OPENERS: Record<TransformInput["tone_preference"], string> = {
   gen_z: "here's what's actually going on with this one —",
@@ -75,44 +59,37 @@ function buildMockOutput(input: TransformInput): TransformOutput {
   };
 }
 
-// ─── OpenAI call ──────────────────────────────────────────────────────────────
-
-async function callOpenAI(userMessage: string): Promise<string> {
-  const response = await client.responses.create({
+async function callOpenAIWithJsonMode(
+  client: OpenAI,
+  userMessage: string
+): Promise<string> {
+  const response = await client.chat.completions.create({
     model: MODEL,
-    max_output_tokens: MAX_OUTPUT_TOKENS,
-    input: [
+    max_tokens: MAX_OUTPUT_TOKENS,
+    response_format: { type: "json_object" },
+    messages: [
       {
         role: "system",
-        content: [
-          {
-            type: "input_text",
-            text: CHIRPIE_TRANSFORM_SYSTEM_PROMPT,
-          },
-        ],
+        content: CHIRPIE_TRANSFORM_SYSTEM_PROMPT,
       },
       {
         role: "user",
-        content: [
-          {
-            type: "input_text",
-            text: userMessage,
-          },
-        ],
+        content: userMessage,
       },
     ],
   });
 
-  const text = response.output_text?.trim();
+  const text = response.choices?.[0]?.message?.content?.trim() ?? "";
 
   if (!text) {
-    throw new Error("[Chirpie] OpenAI returned empty transform output");
+    console.warn("[Chirpie] Chat Completions returned empty transform output", {
+      model: MODEL,
+      choices: response.choices?.length ?? 0,
+    });
   }
 
   return text;
 }
-
-// ─── Parse + validate ─────────────────────────────────────────────────────────
 
 type ParseResult =
   | { success: true; data: TransformOutput }
@@ -143,20 +120,19 @@ function tryParse(raw: string): ParseResult {
   }
 }
 
-// ─── Public transform function ────────────────────────────────────────────────
-
-export async function transformStory(
+async function transformStory(
   rawInput: TransformInput
 ): Promise<TransformOutput & { _source: "ai" | "mock" }> {
   const input = rawInput;
-  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  const client = getOpenAIClient();
 
   console.log("[Chirpie][transform-story] config", {
     provider: "openai",
-    hasKey: Boolean(apiKey),
+    hasKey: Boolean(client),
+    model: MODEL,
   });
 
-  if (!apiKey) {
+  if (!client) {
     console.warn(
       "[Chirpie] OPENAI_API_KEY not configured — returning deterministic mock output"
     );
@@ -180,15 +156,19 @@ export async function transformStory(
   });
 
   try {
-    console.log("[Chirpie][transform-story] calling OpenAI");
+    console.log("[Chirpie][transform-story] calling OpenAI via chat.completions");
 
-    const rawOutput = await callOpenAI(userMessage);
+    const rawOutput = await callOpenAIWithJsonMode(client, userMessage);
+
+    if (!rawOutput) {
+      console.warn("[Chirpie][transform-story] empty AI output — using grounded mock");
+      return { ...buildMockOutput(input), _source: "mock" };
+    }
+
     const firstResult = tryParse(rawOutput);
 
     if (firstResult.success) {
-      console.log("[Chirpie][transform-story] success", {
-        mode: "ai",
-      });
+      console.log("[Chirpie][transform-story] success", { mode: "ai" });
       return { ...firstResult.data, _source: "ai" };
     }
 
@@ -210,13 +190,17 @@ export async function transformStory(
       rawOutput,
     ].join("\n");
 
-    const repairedOutput = await callOpenAI(repairMessage);
+    const repairedOutput = await callOpenAIWithJsonMode(client, repairMessage);
+
+    if (!repairedOutput) {
+      console.warn("[Chirpie][transform-story] empty repair output — using grounded mock");
+      return { ...buildMockOutput(input), _source: "mock" };
+    }
+
     const repairResult = tryParse(repairedOutput);
 
     if (repairResult.success) {
-      console.log("[Chirpie][transform-story] repaired-success", {
-        mode: "ai",
-      });
+      console.log("[Chirpie][transform-story] repaired-success", { mode: "ai" });
       return { ...repairResult.data, _source: "ai" };
     }
 
@@ -229,3 +213,6 @@ export async function transformStory(
     return { ...buildMockOutput(input), _source: "mock" };
   }
 }
+
+export { transformStory };
+export default transformStory;
