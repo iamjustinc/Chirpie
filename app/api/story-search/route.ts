@@ -3,6 +3,27 @@ import type { RawStory, ContentCategory } from "@/lib/content/types";
 
 const GUARDIAN_BASE_URL = "https://content.guardianapis.com/search";
 
+const STOP_WORDS = new Set([
+  "can",
+  "could",
+  "you",
+  "tell",
+  "me",
+  "about",
+  "by",
+  "please",
+  "the",
+  "a",
+  "an",
+  "something",
+  "anything",
+  "related",
+  "to",
+  "what",
+  "whats",
+  "what's",
+]);
+
 function stripHtml(input: string): string {
   return input.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
 }
@@ -21,7 +42,16 @@ function inferCategory(query: string): ContentCategory {
     q.includes("actor") ||
     q.includes("artist") ||
     q.includes("singer") ||
-    q.includes("pop")
+    q.includes("tour") ||
+    q.includes("album") ||
+    q.includes("song") ||
+    q.includes("vinyl") ||
+    q.includes("concert") ||
+    q.includes("pop") ||
+    q.includes("sabrina") ||
+    q.includes("carpenter") ||
+    q.includes("taylor") ||
+    q.includes("swift")
   ) {
     return "pop_culture";
   }
@@ -60,34 +90,74 @@ function inferCategory(query: string): ContentCategory {
   return "general";
 }
 
-function tokenizeQuery(query: string): string[] {
+function normalizeQuery(query: string): string {
   return query
     .toLowerCase()
     .replace(/[^\w\s]/g, " ")
     .split(/\s+/)
     .map((t) => t.trim())
-    .filter((t) => t.length >= 3);
+    .filter((t) => t.length >= 3 && !STOP_WORDS.has(t))
+    .join(" ")
+    .trim();
+}
+
+function tokenizeQuery(query: string): string[] {
+  return normalizeQuery(query)
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
 }
 
 function computeRelevance(query: string, headline: string, summary: string): number {
   const tokens = tokenizeQuery(query);
-  const haystack = `${headline} ${summary}`.toLowerCase();
+  const headlineLc = headline.toLowerCase();
+  const summaryLc = summary.toLowerCase();
+  const haystack = `${headlineLc} ${summaryLc}`;
 
   let score = 0;
 
   for (const token of tokens) {
-    if (headline.toLowerCase().includes(token)) score += 3;
-    else if (haystack.includes(token)) score += 1;
+    if (headlineLc.includes(token)) {
+      score += 4;
+    } else if (summaryLc.includes(token)) {
+      score += 2;
+    }
+  }
+
+  const normalized = normalizeQuery(query);
+
+  if (normalized && headlineLc.includes(normalized)) {
+    score += 8;
+  }
+
+  if (tokens.length >= 2) {
+    const matchedTokens = tokens.filter((t) => haystack.includes(t)).length;
+    score += matchedTokens * 2;
   }
 
   return score;
 }
 
+function hasStrongMatch(query: string, headline: string, summary: string): boolean {
+  const tokens = tokenizeQuery(query);
+  const haystack = `${headline} ${summary}`.toLowerCase();
+
+  if (tokens.length === 0) return false;
+
+  const matched = tokens.filter((t) => haystack.includes(t)).length;
+
+  if (tokens.length === 1) return matched >= 1;
+  if (tokens.length === 2) return matched >= 2;
+  if (tokens.length >= 3) return matched >= 2;
+
+  return false;
+}
+
 export async function GET(req: NextRequest) {
   const apiKey = process.env.GUARDIAN_API_KEY?.trim();
-  const query = req.nextUrl.searchParams.get("q")?.trim();
+  const rawQuery = req.nextUrl.searchParams.get("q")?.trim();
 
-  if (!query) {
+  if (!rawQuery) {
     return NextResponse.json(
       { error: "Missing query parameter q" },
       { status: 400 }
@@ -101,6 +171,8 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  const query = normalizeQuery(rawQuery) || rawQuery;
+
   const url = new URL(GUARDIAN_BASE_URL);
   url.searchParams.set("api-key", apiKey);
   url.searchParams.set("q", query);
@@ -109,8 +181,8 @@ export async function GET(req: NextRequest) {
   url.searchParams.set("order-by", "relevance");
 
   const thirtyDaysAgo = new Date();
-thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-url.searchParams.set("from-date", thirtyDaysAgo.toISOString().slice(0, 10));
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  url.searchParams.set("from-date", thirtyDaysAgo.toISOString().slice(0, 10));
 
   try {
     console.info(`[Chirpie/story-search] Searching Guardian for "${query}"`);
@@ -145,6 +217,7 @@ url.searchParams.set("from-date", thirtyDaysAgo.toISOString().slice(0, 10));
       const articleUrl = item?.webUrl;
 
       if (!headline || !articleUrl) continue;
+      if (!hasStrongMatch(query, headline, summary)) continue;
 
       const score = computeRelevance(query, headline, summary);
 
@@ -166,12 +239,12 @@ url.searchParams.set("from-date", thirtyDaysAgo.toISOString().slice(0, 10));
     mapped.sort((a, b) => b._score - a._score);
 
     const stories: RawStory[] = mapped
-      .filter((story) => story._score > 0)
+      .filter((story) => story._score >= 4)
       .slice(0, 5)
       .map(({ _score, ...story }) => story);
 
     console.info(
-      `[Chirpie/story-search] "${query}" returned ${stories.length} relevant stories`
+      `[Chirpie/story-search] "${query}" returned ${stories.length} strong matches`
     );
 
     return NextResponse.json({ query, stories });
