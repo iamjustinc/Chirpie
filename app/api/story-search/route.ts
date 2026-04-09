@@ -201,14 +201,19 @@ function hasStrongMatch(
 }
 
 /**
- * Per-token-count minimum score thresholds.
- * Single-token entity queries score lower by nature (no coverage bonus layering),
- * so a lower threshold is required to surface valid results.
+ * Minimum relevance score required to include a story in results.
+ *
+ * Strict mode (broad=false):
+ *   All query lengths → 6. A score of 6 requires at least a headline match
+ *   (4 pts) plus coverage bonus (2 pts). Summary-only matches score 4 and are
+ *   excluded — they are too weak to show with confidence.
+ *
+ * Broad mode (broad=true, OR-fallback):
+ *   Stays at 4 to maximise recall when strict phases found nothing. The
+ *   Guardian section filter applied in broad mode compensates for the lower bar.
  */
-function minScoreForQuery(query: string, broad = false): number {
-  if (broad) return 4; // relaxed for OR-fallback and corrected-query passes
-  const tokens = tokenizeQuery(query);
-  return tokens.length <= 1 ? 4 : 6;
+function minScoreForQuery(_query: string, broad = false): number {
+  return broad ? 4 : 6;
 }
 
 // ─── Guardian fetch helper ────────────────────────────────────────────────────
@@ -216,6 +221,56 @@ function minScoreForQuery(query: string, broad = false): number {
 interface GuardianResult {
   stories: Array<RawStory & { _score: number }>;
   rawCount: number;
+}
+
+/**
+ * Maps an inferred content category to the Guardian section slug(s) used to
+ * constrain the search in broad (OR-fallback) mode. Prevents a "stock market"
+ * OR query from returning culture or sports articles that mention both words.
+ *
+ * Only applied in broad mode — strict AND queries are already precise enough.
+ */
+const CATEGORY_SECTION: Partial<Record<ContentCategory, string>> = {
+  finance: "business",
+  pop_culture: "culture|music|film|tv-and-radio",
+  tech: "technology",
+  world: "world",
+};
+
+/**
+ * Deduplicate headlines within a scored batch.
+ * Two headlines are considered near-duplicates when they share ≥ 60 % of their
+ * significant tokens (4+ chars, not stop-words). The lower-scoring entry is
+ * dropped. This catches syndication reprints and wire-copy mirrors that Guardian
+ * sometimes returns as separate articles.
+ */
+function dedupByHeadlineSimilarity(
+  stories: Array<RawStory & { _score: number }>
+): Array<RawStory & { _score: number }> {
+  const STOPS = new Set(["the", "and", "for", "that", "with", "from", "this", "have", "they"]);
+  const kept: Array<RawStory & { _score: number }> = [];
+
+  function sig(headline: string): string[] {
+    return headline
+      .toLowerCase()
+      .replace(/[^a-z0-9 ]/g, " ")
+      .split(/\s+/)
+      .filter((t) => t.length >= 4 && !STOPS.has(t));
+  }
+
+  for (const candidate of stories) {
+    const cTokens = sig(candidate.headline);
+    const isDup = kept.some((existing) => {
+      const eTokens = sig(existing.headline);
+      if (cTokens.length === 0 || eTokens.length === 0) return false;
+      const matches = cTokens.filter((t) => eTokens.includes(t)).length;
+      const overlap = matches / Math.max(cTokens.length, eTokens.length);
+      return overlap >= 0.6;
+    });
+    if (!isDup) kept.push(candidate);
+  }
+
+  return kept;
 }
 
 async function fetchFromGuardian(
@@ -234,6 +289,16 @@ async function fetchFromGuardian(
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
   url.searchParams.set("from-date", thirtyDaysAgo.toISOString().slice(0, 10));
+
+  // In broad (OR) mode, pin to the Guardian section matching the inferred
+  // category so OR token expansion doesn't pull in off-category results.
+  if (broad) {
+    const cat = inferCategory(rawQuery);
+    const section = CATEGORY_SECTION[cat];
+    if (section) {
+      url.searchParams.set("section", section);
+    }
+  }
 
   const res = await fetch(url.toString(), {
     next: { revalidate: 300 },
@@ -276,7 +341,11 @@ async function fetchFromGuardian(
 
   mapped.sort((a, b) => b._score - a._score);
 
-  return { stories: mapped, rawCount: results.length };
+  // Remove near-duplicate headlines (syndication reprints, wire-copy mirrors)
+  // after sorting so the highest-scoring copy is always the one kept.
+  const deduped = dedupByHeadlineSimilarity(mapped);
+
+  return { stories: deduped, rawCount: results.length };
 }
 
 // ─── OpenAI query correction ──────────────────────────────────────────────────

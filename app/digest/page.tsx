@@ -161,12 +161,16 @@ function categoryMatchesQuery(query: string): Category | null {
     q === "markets" ||
     q === "economy" ||
     q === "money" ||
+    q === "business" ||
     q.includes("stock market") ||
     q.includes("finance news") ||
+    q.includes("business news") ||
     q.includes("more finance") ||
     q.includes("more on finance") ||
+    q.includes("more business") ||
     q.includes("what about finance") ||
-    q.includes("switch to finance")
+    q.includes("switch to finance") ||
+    q.includes("switch to business")
   ) {
     return "finance";
   }
@@ -230,7 +234,8 @@ function inferCategoryFromQuery(query: string): Category | null {
   if (
     q.includes("stock") || q.includes("market") || q.includes("finance") ||
     q.includes("economy") || q.includes("earnings") || q.includes("nasdaq") ||
-    q.includes("crypto") || q.includes("bitcoin") || q.includes("invest")
+    q.includes("crypto") || q.includes("bitcoin") || q.includes("invest") ||
+    q.includes("business")
   ) {
     return "finance";
   }
@@ -299,7 +304,8 @@ function parseCategoryFromPhrase(text: string): Category | null {
   }
   if (
     q.includes("finance") || q.includes("financial") ||
-    q.includes("market") || q.includes("stock") || q.includes("economy")
+    q.includes("market") || q.includes("stock") || q.includes("economy") ||
+    q.includes("business")
   ) {
     return "finance";
   }
