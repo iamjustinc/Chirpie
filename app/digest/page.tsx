@@ -5,6 +5,7 @@ import { AppShell } from "@/components/shell/AppShell";
 import { ConversationThread } from "@/components/digest/ConversationThread";
 import type { StoryChip } from "@/components/digest/ConversationThread";
 import { loadUserPrefs, getToneGreeting, toneToApiTone } from "@/lib/user-prefs";
+import { isStoryFollowUp } from "@/lib/query/normalize";
 import { fetchStoryTransform } from "@/lib/demo/fetch-story-transform";
 import { getLeadStoryForCategory } from "@/lib/content/get-demo-stories";
 import { uiCategoryToContentCategory } from "@/lib/content/normalize-story";
@@ -56,46 +57,146 @@ function normalizeText(text: string): string {
   return text.trim().toLowerCase();
 }
 
+/**
+ * Matches explicit category-redirect phrases — things the user types when they
+ * clearly want to switch to a specific content category, not search for a
+ * specific article. Kept intentionally narrow: "stock market" → finance,
+ * "pop culture" → pop-culture, etc. Bare entity names (artist names, game
+ * titles) should fall through to search so Guardian can find specific articles.
+ */
 function categoryMatchesQuery(query: string): Category | null {
   const q = normalizeText(query);
 
+  // Explicit pop-culture redirect words
   if (
     q === "pop" ||
-    q.includes("pop culture") ||
-    q.includes("pop-culture") ||
-    q.includes("celeb") ||
-    q.includes("celebrity") ||
-    q.includes("entertainment") ||
-    q === "music news"
+    q === "pop culture" ||
+    q === "pop-culture" ||
+    q === "entertainment" ||
+    q === "celebrity" ||
+    q === "celebs" ||
+    q === "music news" ||
+    q.startsWith("more pop") ||
+    q.startsWith("more entertainment") ||
+    q.startsWith("switch to pop") ||
+    q.startsWith("that wasn't pop") ||
+    q.startsWith("more celeb")
   ) {
     return "pop-culture";
   }
 
-  if (q === "general" || q === "news" || q === "general news") {
+  // Explicit general-news redirect
+  if (q === "general" || q === "news" || q === "general news" || q === "top news") {
     return "general";
   }
 
+  // Finance redirect — category keywords only, not artist/entity names that
+  // happen to contain these words
   if (
     q === "finance" ||
     q === "stock" ||
     q === "stocks" ||
+    q === "market" ||
+    q === "markets" ||
+    q === "economy" ||
+    q === "money" ||
     q.includes("stock market") ||
-    q.includes("market") ||
-    q.includes("stocks") ||
-    q.includes("money")
+    q.includes("finance news") ||
+    q.includes("more finance") ||
+    q.includes("more on finance") ||
+    q.includes("what about finance") ||
+    q.includes("switch to finance")
   ) {
     return "finance";
   }
 
-  if (q === "sports" || q.includes("game") || q.includes("match")) {
+  // Sports redirect
+  if (
+    q === "sports" ||
+    q === "sport" ||
+    q.startsWith("more sports") ||
+    q.startsWith("switch to sports")
+  ) {
     return "sports";
   }
 
-  if (q === "tech" || q === "technology" || q.includes("startup")) {
+  // Tech redirect
+  if (
+    q === "tech" ||
+    q === "technology" ||
+    q.startsWith("more tech") ||
+    q.startsWith("switch to tech")
+  ) {
     return "technology";
   }
 
-  if (q === "world" || q.includes("global") || q.includes("international")) {
+  // World redirect
+  if (
+    q === "world" ||
+    q === "world news" ||
+    q.startsWith("more world") ||
+    q.startsWith("switch to world")
+  ) {
+    return "world";
+  }
+
+  return null;
+}
+
+/**
+ * When Guardian returns zero results even after all retry phases, infer the
+ * closest content category from the query so we can pivot to live feed stories
+ * instead of returning a dead end. More liberal than categoryMatchesQuery —
+ * this is a last-resort fallback, not a routing gate.
+ */
+function inferCategoryFromQuery(query: string): Category | null {
+  const q = normalizeText(query);
+
+  if (
+    q.includes("pop") || q.includes("celeb") || q.includes("music") ||
+    q.includes("actor") || q.includes("singer") || q.includes("artist") ||
+    q.includes("tour") || q.includes("album") || q.includes("film") ||
+    q.includes("movie") || q.includes("concert") || q.includes("ghost") ||
+    q.includes("chappell") || q.includes("roan") || q.includes("sabrina") ||
+    q.includes("carpenter") || q.includes("taylor") || q.includes("swift") ||
+    q.includes("fka") || q.includes("twigs") || q.includes("beyonce") ||
+    q.includes("billie") || q.includes("eilish") || q.includes("drake") ||
+    q.includes("doja") || q.includes("ariana") || q.includes("travis")
+  ) {
+    return "pop-culture";
+  }
+
+  if (
+    q.includes("stock") || q.includes("market") || q.includes("finance") ||
+    q.includes("economy") || q.includes("earnings") || q.includes("nasdaq") ||
+    q.includes("crypto") || q.includes("bitcoin") || q.includes("invest")
+  ) {
+    return "finance";
+  }
+
+  if (
+    q.includes("tech") || q.includes("ai ") || q === "ai" ||
+    q.includes("software") || q.includes("startup") ||
+    q.includes("nvidia") || q.includes("apple") || q.includes("google") ||
+    q.includes("honkai") || q.includes("gaming") || q.includes("game") ||
+    q.includes("playstation") || q.includes("xbox") || q.includes("nintendo")
+  ) {
+    return "technology";
+  }
+
+  if (
+    q.includes("sport") || q.includes("nba") || q.includes("nfl") ||
+    q.includes("soccer") || q.includes("football") || q.includes("tennis") ||
+    q.includes("player") || q.includes("team") || q.includes("match")
+  ) {
+    return "sports";
+  }
+
+  if (
+    q.includes("world") || q.includes("global") || q.includes("war") ||
+    q.includes("election") || q.includes("international") ||
+    q.includes("ukraine") || q.includes("russia") || q.includes("china")
+  ) {
     return "world";
   }
 
@@ -125,75 +226,6 @@ function isNextStoryRequest(text: string): boolean {
   ].includes(q);
 }
 
-function isTopicSearchRequest(text: string): boolean {
-  const q = normalizeText(text);
-
-  return (
-    q.startsWith("tell me about ") ||
-    q.startsWith("can you tell me about ") ||
-    q.startsWith("could you tell me about ") ||
-    q.startsWith("what's happening with ") ||
-    q.startsWith("whats happening with ") ||
-    q.startsWith("what is happening with ") ||
-    q.startsWith("news about ") ||
-    q.startsWith("show me ") ||
-    q.startsWith("search for ") ||
-    q.startsWith("find me ") ||
-    q.includes("related to ") ||
-    q.includes("anything about ") ||
-    q.includes("something about ") ||
-    q.includes("how about ")
-  );
-}
-
-/**
- * Returns true for bare multi-word entity/topic phrases that were NOT caught by
- * the explicit-prefix check above and are clearly NOT follow-up questions.
- *
- * Examples that should return true:
- *   "house tour by sabrina carpenter"
- *   "taylor swift eras tour"
- *   "nvidia earnings"
- *
- * Examples that should return false (stay as follow-ups):
- *   "why does this matter?" → starts with question word
- *   "what's the background?" → ends with ?
- *   "quick recap?" → ends with ? + has follow-up word
- *   "broader context?" → ends with ?
- *   "tell me more" → starts with "tell me"
- */
-function looksLikeSearchQuery(text: string): boolean {
-  const q = normalizeText(text);
-  const words = q.split(/\s+/).filter(Boolean);
-
-  // Need at least 2 words — single words go through category matching or next-story
-  if (words.length < 2) return false;
-
-  // Questions (by leading word) → follow-up, not search
-  const QUESTION_STARTERS = [
-    "why", "what", "how", "is", "are", "does", "will", "would",
-    "who", "when", "where", "should", "could", "can",
-  ];
-  if (QUESTION_STARTERS.includes(words[0])) return false;
-
-  // "tell me ..." prefix — "tell me about X" is caught by isTopicSearchRequest;
-  // anything else ("tell me more") should be a follow-up
-  if (q.startsWith("tell me")) return false;
-
-  // Ends with ? → almost certainly a follow-up question
-  if (q.endsWith("?")) return false;
-
-  // Follow-up indicator words — these phrases belong in the story conversation
-  const FOLLOW_UP_INDICATORS = [
-    "matter", "happen", "background", "context", "recap",
-    "explain", "summary", "summarize", "elaborate", "dig deeper",
-  ];
-  if (FOLLOW_UP_INDICATORS.some((w) => q.includes(w))) return false;
-
-  // Passes all gates → likely a bare entity/topic search
-  return true;
-}
-
 function extractTopicQuery(text: string, lastSearchTopic?: string | null): string {
   const raw = text.trim();
 
@@ -204,9 +236,16 @@ function extractTopicQuery(text: string, lastSearchTopic?: string | null): strin
     .replace(/^what'?s happening with\s+/i, "")
     .replace(/^what is happening with\s+/i, "")
     .replace(/^news about\s+/i, "")
+    .replace(/^news on\s+/i, "")
+    .replace(/^more on\s+/i, "")
+    .replace(/^more about\s+/i, "")
     .replace(/^show me\s+/i, "")
     .replace(/^search for\s+/i, "")
     .replace(/^find me\s+/i, "")
+    .replace(/^what about\s+/i, "")
+    .replace(/^how about\s+/i, "")
+    .replace(/^anything on\s+/i, "")
+    .replace(/^any news on\s+/i, "")
     .trim();
 
   if (direct !== raw && direct.length > 0) {
@@ -216,8 +255,7 @@ function extractTopicQuery(text: string, lastSearchTopic?: string | null): strin
   const relatedMatch =
     raw.match(/related to\s+(.+)$/i) ||
     raw.match(/anything about\s+(.+)$/i) ||
-    raw.match(/something about\s+(.+)$/i) ||
-    raw.match(/how about\s+(.+)$/i);
+    raw.match(/something about\s+(.+)$/i);
 
   if (relatedMatch?.[1]) {
     const fragment = relatedMatch[1].trim();
@@ -458,19 +496,41 @@ export default function DigestPage() {
 
         const data = await res.json();
         const rawStory = data?.stories?.[0] as RawStory | undefined;
+        const correctedQuery: string | undefined = data?.correctedQuery;
+
+        if (correctedQuery) {
+          console.log(`[Chirpie][search] query corrected: "${query}" → "${correctedQuery}"`);
+        }
 
         if (!rawStory) {
-          appendAssistantMessage(`i couldn't find a solid Guardian story for "${query}" right now.`);
+          // ── Actionable fallback: pivot to the nearest category ────────────
+          // Rather than a dead-end "couldn't find" message, infer what category
+          // the user likely wants and load a real story from the live feed.
+          const pivotCategory = inferCategoryFromQuery(query);
+
+          if (pivotCategory) {
+            console.log(
+              `[Chirpie][search] zero results for "${query}" — pivoting to category "${pivotCategory}"`
+            );
+            // Replace the user-message bubble with a category switch
+            // (handleTopicSelect will push its own user-message, so remove ours first)
+            setThreadItems((prev) => prev.filter((i) => i.id !== userMsg.id));
+            setIsThreadLoading(false);
+            await handleTopicSelect(pivotCategory, userText);
+            return;
+          }
+
+          // No inferable category — give a helpful, directed response
+          appendAssistantMessage(
+            `searched for "${query}" but nothing solid came up — ` +
+            `try switching topics above, or ask about a specific person or story.`
+          );
           return;
         }
 
-        setLastSearchTopic(query);
+        setLastSearchTopic(correctedQuery ?? query);
 
-        const { story } = await fetchStoryTransform(
-          rawStory,
-          apiTone,
-          nid("search")
-        );
+        const { story } = await fetchStoryTransform(rawStory, apiTone, nid("search"));
 
         setThreadItems((prev) => [
           ...prev,
@@ -482,12 +542,14 @@ export default function DigestPage() {
         ]);
       } catch (err) {
         console.error("[Chirpie] topic search failed:", err);
-        appendAssistantMessage(`i couldn't search Guardian for "${query}" right now.`);
+        appendAssistantMessage(
+          `something went wrong searching for "${query}" — try again or switch topics.`
+        );
       } finally {
         setIsThreadLoading(false);
       }
     },
-    [apiTone, appendAssistantMessage, lastSearchTopic]
+    [apiTone, appendAssistantMessage, lastSearchTopic, handleTopicSelect]
   );
 
   const handleTypedComposerIntent = useCallback(
@@ -495,28 +557,29 @@ export default function DigestPage() {
       const normalized = normalizeText(text);
       console.log("[composer] raw:", JSON.stringify(text));
 
-      // 1. Explicit search prefix ("tell me about X", "what's happening with X", etc.)
-      if (isTopicSearchRequest(normalized)) {
-        console.log("[composer] route → topic_search (prefix)");
-        await handleGuardianTopicSearch(text);
-        return true;
-      }
-
-      // 2. Navigation ("next news", "more", "another one", etc.)
+      // 1. Navigation shortcuts — exact phrases like "next", "more", "another one"
       if (isNextStoryRequest(normalized)) {
         console.log("[composer] route → next_story");
         await handleNextStory(text);
         return true;
       }
 
-      // 3. Category keyword ("stock", "finance", "tech", etc.)
-      //    If the user is already reading a story in that category, advance to
-      //    the next story rather than reloading the same one.
+      // 2. Contextual "another X update" (e.g., "another pop update")
+      const lastCategory = getLastStoryCategory();
+      if (normalized.includes("another") && normalized.includes("update") && lastCategory) {
+        console.log("[composer] route → contextual_next_story", lastCategory);
+        await handleNextStory(text);
+        return true;
+      }
+
+      // 3. Explicit category redirect — narrow set of phrases that clearly mean
+      //    "switch me to this category", not "search for this entity".
+      //    Bare entity names (artists, games, market terms) are intentionally NOT
+      //    caught here — they go to search instead so Guardian finds specific articles.
       const matchedCategory = categoryMatchesQuery(normalized);
       if (matchedCategory) {
         const lastCat = getLastStoryCategory();
         if (lastCat === matchedCategory) {
-          // Same category already active — advance rather than repeat
           console.log("[composer] route → next_story (same-category dedup)", matchedCategory);
           await handleNextStory(text);
         } else {
@@ -526,29 +589,21 @@ export default function DigestPage() {
         return true;
       }
 
-      // 4. Contextual "another X update" (e.g., "another pop update")
-      const lastCategory = getLastStoryCategory();
-      if (
-        normalized.includes("another") &&
-        normalized.includes("update") &&
-        lastCategory
-      ) {
-        console.log("[composer] route → contextual_next_story", lastCategory);
-        await handleNextStory(text);
-        return true;
+      // 4. Clear story follow-up — user is asking about the CURRENT article.
+      //    This is a strict allowlist (see lib/query/normalize.ts). Anything that
+      //    doesn't match falls through to search below.
+      if (isStoryFollowUp(text)) {
+        console.log("[composer] route → story_follow_up");
+        return false;
       }
 
-      // 5. Bare entity/topic query — multi-word phrase that doesn't look like a
-      //    follow-up question ("house tour by sabrina carpenter", "nvidia earnings")
-      if (looksLikeSearchQuery(text)) {
-        console.log("[composer] route → topic_search (bare entity)");
-        await handleGuardianTopicSearch(text);
-        return true;
-      }
-
-      // 6. Falls through → ConversationThread handles it as a story follow-up
-      console.log("[composer] route → story_follow_up");
-      return false;
+      // 5. DEFAULT: search Guardian for a new story.
+      //    This is the primary path for bare entity names, artist/game/topic
+      //    queries, typo-heavy inputs, and anything that isn't clearly navigation
+      //    or a follow-up question about the active article.
+      console.log("[composer] route → topic_search (default)");
+      await handleGuardianTopicSearch(text);
+      return true;
     },
     [
       handleGuardianTopicSearch,
