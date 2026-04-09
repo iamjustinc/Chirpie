@@ -51,6 +51,67 @@ function nid(prefix: string): string {
   return `${prefix}-${++_itemSeq}`;
 }
 
+// ─── Story deduplication ──────────────────────────────────────────────────────
+
+/**
+ * Collapses punctuation / case differences so that "Fed Raises Rates Again"
+ * and "Fed raises rates again!" compare equal as seen headlines.
+ */
+function normalizeHeadlineForDedup(headline: string): string {
+  return headline
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+interface SeenFingerprints {
+  /** Lowercased source URLs of every story already shown in this session. */
+  urls: Set<string>;
+  /**
+   * Normalized headlines of shown stories. Secondary signal — catches cases
+   * where different URLs carry near-identical text (syndication, mirrors, etc).
+   */
+  headlines: Set<string>;
+}
+
+/**
+ * Builds a dedup fingerprint set from the current thread. Only story items
+ * are considered — user messages and assistant replies are ignored.
+ *
+ * URL is the primary key because it flows through the entire stack unchanged:
+ *   RawStory.source.url → Story.sources[0].url (see transform-to-story.ts).
+ * Headline is a secondary key for extra safety.
+ */
+function buildSeenFingerprints(items: ThreadItem[]): SeenFingerprints {
+  const urls = new Set<string>();
+  const headlines = new Set<string>();
+
+  for (const item of items) {
+    if (item.type !== "story") continue;
+    const s = item.story;
+    for (const src of s.sources) {
+      if (src.url) urls.add(src.url.toLowerCase());
+    }
+    if (s.headline) headlines.add(normalizeHeadlineForDedup(s.headline));
+  }
+
+  return { urls, headlines };
+}
+
+/**
+ * Returns true when a RawStory candidate has already been shown in this session.
+ * Checks URL (primary) then normalized headline (secondary).
+ */
+function isRawStorySeen(rawStory: RawStory, seen: SeenFingerprints): boolean {
+  const url = rawStory.source?.url?.toLowerCase();
+  if (url && seen.urls.has(url)) return true;
+  if (rawStory.headline) {
+    if (seen.headlines.has(normalizeHeadlineForDedup(rawStory.headline))) return true;
+  }
+  return false;
+}
+
 // ─── Intent helpers ───────────────────────────────────────────────────────────
 
 function normalizeText(text: string): string {
@@ -352,11 +413,24 @@ export default function DigestPage() {
       });
   }, []);
 
+  // Reactive seen-story fingerprint set derived from threadItems (state, not ref).
+  // Used in nextSuggestionChip so the chip updates as new stories appear.
+  // Handlers that run async use buildSeenFingerprints(threadItemsRef.current) directly.
+  const seenStoryFingerprints = useMemo(
+    () => buildSeenFingerprints(threadItems),
+    [threadItems]
+  );
+
+  // Always return the first chip whose story has NOT yet been shown in this session.
+  // Falls back to undefined (hides the chip) when all available stories are spent.
   const nextSuggestionChip = useMemo((): StoryChip | undefined => {
     if (!storyChips.length) return undefined;
-    if (selectedChipId) return storyChips.find((c) => c.id !== selectedChipId);
-    return storyChips[0];
-  }, [storyChips, selectedChipId]);
+    return storyChips.find((chip) => {
+      const rawStory = storyMap.get(chip.id);
+      if (!rawStory) return false;
+      return !isRawStorySeen(rawStory, seenStoryFingerprints);
+    });
+  }, [storyChips, storyMap, seenStoryFingerprints]);
 
   // ── appendAssistantMessage: push a plain text bubble into the thread ──────────
   const appendAssistantMessage = useCallback((text: string) => {
@@ -419,6 +493,18 @@ export default function DigestPage() {
       if (!rawStory) {
         setIsThreadLoading(false);
         appendAssistantMessage(`nothing new on ${label} right now — try another topic.`);
+        return;
+      }
+
+      // Dedup check: if this exact story (by URL or headline) was already shown,
+      // surface a helpful message rather than repeating the same content.
+      const seen = buildSeenFingerprints(currentItems);
+      if (isRawStorySeen(rawStory, seen)) {
+        setIsThreadLoading(false);
+        appendAssistantMessage(
+          `i already covered the latest ${label} story — ` +
+          `ask about something specific or pick a different topic above.`
+        );
         return;
       }
 
@@ -491,7 +577,11 @@ export default function DigestPage() {
       const chip = nextSuggestionChip;
 
       if (!chip) {
-        appendAssistantMessage("i don't have another story queued yet — try switching topics.");
+        // nextSuggestionChip is undefined when all available chips have been shown.
+        appendAssistantMessage(
+          "i've covered all the stories i have queued right now — " +
+          "try asking about a specific topic or person, or pick a category above."
+        );
         return;
       }
 
@@ -517,32 +607,54 @@ export default function DigestPage() {
   const handleNextStoryInCategory = useCallback(
     async (category: Category, customUserText: string) => {
       const contentCat = uiCategoryToContentCategory(category);
+      // Snapshot seen fingerprints from the ref so we always use the latest
+      // thread state, even if React hasn't flushed the most recent setState yet.
+      const seen = buildSeenFingerprints(threadItemsRef.current);
 
-      // Find an unshown chip whose RawStory belongs to this category
+      // Find the first chip in this category whose story hasn't been shown yet.
+      // Uses URL + headline fingerprints — NOT selectedChipId — so every story
+      // already in the thread is correctly excluded, not just the most recent one.
       const categoryChip = storyChips.find((chip) => {
         if (!contentCat) return false;
-        if (chip.id === selectedChipId) return false; // skip already-shown chip
         const rawStory = storyMap.get(chip.id);
-        return rawStory?.category === contentCat;
+        if (!rawStory || rawStory.category !== contentCat) return false;
+        return !isRawStorySeen(rawStory, seen);
       });
 
       if (categoryChip) {
         console.log(
-          `[Chirpie] next_story_in_category "${category}" → chip "${categoryChip.id}"`
+          `[Chirpie] next_story_in_category "${category}" → unseen chip "${categoryChip.id}"`
         );
         await handleStoryChipSelect(categoryChip.id, customUserText);
         return;
       }
 
-      // No unshown chip for this category — fall through to category live feed.
-      // handleTopicSelect always picks the live-feed story for the category,
-      // keeping the result in-category even if it repeats.
+      // No fresh chip for this category — try the live-feed story.
+      // handleTopicSelect now also performs a seen-check and will surface a
+      // helpful message rather than repeat if the live story is already shown.
+      const liveFeedStory = contentCat
+        ? liveByCategoryRef.current.get(contentCat) ?? getLeadStoryForCategory(contentCat)
+        : null;
+
+      if (liveFeedStory && !isRawStorySeen(liveFeedStory, seen)) {
+        console.log(
+          `[Chirpie] next_story_in_category "${category}" — no fresh chip, loading unseen live-feed story`
+        );
+        await handleTopicSelect(category, customUserText);
+        return;
+      }
+
+      // All known stories in this category are already shown.
+      const label = getCategoryLabel(category).toLowerCase();
       console.log(
-        `[Chirpie] next_story_in_category "${category}" — no fresh chip, falling back to topic select`
+        `[Chirpie] next_story_in_category "${category}" — all stories already shown`
       );
-      await handleTopicSelect(category, customUserText);
+      appendAssistantMessage(
+        `i've already covered everything i have on ${label} right now — ` +
+        `try asking about a specific person or story, or switch to another topic.`
+      );
     },
-    [storyChips, storyMap, selectedChipId, handleStoryChipSelect, handleTopicSelect]
+    [storyChips, storyMap, handleStoryChipSelect, handleTopicSelect, appendAssistantMessage]
   );
 
   const handleGuardianTopicSearch = useCallback(
@@ -571,11 +683,22 @@ export default function DigestPage() {
         }
 
         const data = await res.json();
-        const rawStory = data?.stories?.[0] as RawStory | undefined;
+        const allStories = (data?.stories ?? []) as RawStory[];
         const correctedQuery: string | undefined = data?.correctedQuery;
 
         if (correctedQuery) {
           console.log(`[Chirpie][search] query corrected: "${query}" → "${correctedQuery}"`);
+        }
+
+        // Pick the first Guardian result that hasn't already been shown in this
+        // session. Uses URL + headline fingerprints from the current thread.
+        const seen = buildSeenFingerprints(threadItemsRef.current);
+        const rawStory = allStories.find((s) => !isRawStorySeen(s, seen));
+
+        if (allStories.length > 0 && !rawStory) {
+          console.log(
+            `[Chirpie][search] all ${allStories.length} Guardian results already shown for "${query}"`
+          );
         }
 
         if (!rawStory) {
