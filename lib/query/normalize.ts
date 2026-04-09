@@ -12,8 +12,8 @@
  * of routing-critical keywords (category names, navigation terms) BEFORE any
  * routing decisions are made.
  *
- * These corrections are intentionally narrow. Only patterns where:
- *   (a) the typo is an extremely common 1-2 character error, AND
+ * Rules for inclusion:
+ *   (a) typo is an extremely common 1-2 character transposition/addition, AND
  *   (b) the correction is unambiguous in a news-app context.
  *
  * General entity/topic typos ("chapple roan") are handled by the search
@@ -21,34 +21,59 @@
  */
 export function preNormalizeQuery(text: string): string {
   return text
-    // Finance / market — "stick market" is by far the most common variant
+    // ── Finance / market ────────────────────────────────────────────────────
+    // "stick market" is the most common single-word typo for "stock market"
     .replace(/\bstick\s+market/gi, "stock market")
     .replace(/\bstikc\s+market/gi, "stock market")
     .replace(/\bstocke?\s+market/gi, "stock market")
     .replace(/\bsotck\b/gi, "stock")
     .replace(/\bstokc\b/gi, "stock")
     .replace(/\bstcok\b/gi, "stock")
+    // "finances" → "finance" (plural → singular for routing)
+    .replace(/\bfinances\b/gi, "finance")
     .replace(/\bfinannce\b/gi, "finance")
     .replace(/\bfinace\b/gi, "finance")
     .replace(/\bfinnce\b/gi, "finance")
     .replace(/\bfincance\b/gi, "finance")
+    .replace(/\bfinanace\b/gi, "finance")
+    .replace(/\bfianance\b/gi, "finance")
+    .replace(/\bfinacnce\b/gi, "finance")
+    // "business" common misspellings
+    .replace(/\bbuisness\b/gi, "business")
+    .replace(/\bbusinees\b/gi, "business")
+    .replace(/\bbusiness's?\b/gi, "business")
+    // "economy" misspellings
     .replace(/\becononomy\b/gi, "economy")
+    .replace(/\beconmoy\b/gi, "economy")
+    .replace(/\becnoomy\b/gi, "economy")
+    // "market" misspellings
     .replace(/\bmarkeet\b/gi, "market")
     .replace(/\bmaket\b/gi, "market")
-    // Navigation — "updatee" double-letter suffix
+    .replace(/\bmarkts\b/gi, "markets")
+
+    // ── Navigation ──────────────────────────────────────────────────────────
+    // "updatee" / "updaet" are extremely common double-tap errors
     .replace(/\bupdatee+\b/gi, "update")
     .replace(/\bupdaet\b/gi, "update")
-    // Pop culture
-    .replace(/\bpoph\b/gi, "pop")
-    .replace(/\bpop[- ]?cultur\b/gi, "pop culture")
-    // Tech
-    .replace(/\btehc\b/gi, "tech")
-    .replace(/\bteche\b/gi, "tech")
-    // Navigation
+    .replace(/\bupdte\b/gi, "update")
+    // "another" misspellings
+    .replace(/\bnaother\b/gi, "another")
+    .replace(/\banohter\b/gi, "another")
+    .replace(/\banthother\b/gi, "another")
+    .replace(/\banothr\b/gi, "another")
+    // "more" / "next"
     .replace(/\bmoree\b/gi, "more")
     .replace(/\bneext\b/gi, "next")
-    .replace(/\bnaother\b/gi, "another")
-    .replace(/\banohter\b/gi, "another");
+
+    // ── Pop culture ─────────────────────────────────────────────────────────
+    .replace(/\bpoph\b/gi, "pop")
+    .replace(/\bpop[- ]?cultur\b/gi, "pop culture")
+
+    // ── Tech ────────────────────────────────────────────────────────────────
+    .replace(/\btehc\b/gi, "tech")
+    .replace(/\bteche\b/gi, "tech")
+    .replace(/\btechonology\b/gi, "technology")
+    .replace(/\btechnolgy\b/gi, "technology");
 }
 
 // ─── Story follow-up classifier ───────────────────────────────────────────────
