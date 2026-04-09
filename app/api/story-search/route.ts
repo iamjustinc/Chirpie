@@ -158,7 +158,22 @@ function computeRelevance(query: string, headline: string, summary: string): num
 
 /**
  * Gate: true when enough tokens appear in the article.
- * Thresholds are relaxed in broad-fallback mode.
+ *
+ * Strict mode (broad=false):
+ *   1 token  → 1 match required
+ *   2 tokens → 2 matches required (both must appear)
+ *   3 tokens → 2 matches required
+ *   4+ tokens → 3 matches required
+ *
+ * Broad mode (broad=true, OR-fallback phase only):
+ *   1 token  → 1 match (unchanged — single token searches need this)
+ *   2 tokens → 2 matches (kept strict — prevents "stick market" OR-phase
+ *              from matching any article that mentions "market")
+ *   3+ tokens → 2 matches (relaxed from strict)
+ *
+ * Keeping 2-token broad threshold = strict threshold is intentional:
+ * it ensures the OR-fallback only adds value through Guardian's broader
+ * initial ranking, not by lowering our client-side quality gate.
  */
 function hasStrongMatch(
   query: string,
@@ -174,15 +189,15 @@ function hasStrongMatch(
   const matched = tokens.filter((t) => haystack.includes(t)).length;
 
   if (broad) {
-    // Broad mode: just need 1 matching token for any query length
-    return matched >= 1;
+    if (tokens.length === 1) return matched >= 1;
+    if (tokens.length === 2) return matched >= 2; // same as strict — prevents false positives
+    return matched >= 2; // 3+ tokens: relaxed from 3 to 2
   }
 
   if (tokens.length === 1) return matched >= 1;
   if (tokens.length === 2) return matched >= 2;
   if (tokens.length === 3) return matched >= 2;
-  // 4+ tokens: require 3 matches
-  return matched >= 3;
+  return matched >= 3; // 4+ tokens
 }
 
 /**
@@ -335,11 +350,12 @@ export async function GET(req: NextRequest) {
   const tokens = tokenizeQuery(rawQuery);
   const normalizedFallback = normalizeQuery(rawQuery) || rawQuery;
 
-  // ── Phase 1: strict AND-query ──────────────────────────────────────────────
+  // ── Phase 1: strict AND-query (original) ──────────────────────────────────
+  //    Best precision: requires ALL significant tokens to appear in Guardian results.
   const andQuery = buildAndQuery(tokens, normalizedFallback);
 
   console.info(
-    `[Chirpie/story-search] Phase1 AND-query "${andQuery}" (raw: "${rawQuery}")`
+    `[Chirpie/story-search] Phase1 AND "${andQuery}" (raw: "${rawQuery}")`
   );
 
   try {
@@ -357,90 +373,80 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ query: andQuery, stories });
     }
 
-    // ── Phase 2: broad OR-query (multi-token only) ─────────────────────────
-    if (tokens.length > 1) {
-      const orQuery = buildOrQuery(tokens, normalizedFallback);
-
-      console.info(`[Chirpie/story-search] Phase2 OR-query "${orQuery}"`);
-
-      const phase2 = await fetchFromGuardian(apiKey, orQuery, rawQuery, true);
-
-      console.info(
-        `[Chirpie/story-search] Phase2 → ${phase2.rawCount} Guardian results, ` +
-        `${phase2.stories.length} broad matches`
-      );
-
-      if (phase2.stories.length > 0) {
-        const stories: RawStory[] = phase2.stories
-          .slice(0, 5)
-          .map(({ _score, ...s }) => s);
-        return NextResponse.json({ query: orQuery, stories, retried: true });
-      }
-    }
-
-    // ── Phase 3: OpenAI query correction + retry ───────────────────────────
+    // ── Phase 2: AI query correction → AND strict on corrected ────────────
+    //    Runs BEFORE OR-broad so that typo-corrected queries like
+    //    "stick market" → "stock market" get a clean strict retry rather
+    //    than letting OR-broad surface coincidental "market" matches.
     console.info(
-      `[Chirpie/story-search] Phase3 — zero results, attempting AI correction for "${rawQuery}"`
+      `[Chirpie/story-search] Phase2 — AND returned 0, attempting AI correction for "${rawQuery}"`
     );
 
     const corrected = await correctQueryWithAI(rawQuery);
+    const activeQuery = corrected ?? rawQuery;
+    const activeTokens = corrected ? tokenizeQuery(corrected) : tokens;
 
     if (corrected) {
       console.info(
         `[Chirpie/story-search] AI corrected "${rawQuery}" → "${corrected}"`
       );
 
-      const correctedTokens = tokenizeQuery(corrected);
       const correctedAndQuery = buildAndQuery(
-        correctedTokens,
+        activeTokens,
         normalizeQuery(corrected) || corrected
       );
 
-      const phase3 = await fetchFromGuardian(
+      const phase2 = await fetchFromGuardian(
         apiKey,
         correctedAndQuery,
         corrected,
         false
       );
 
-      if (phase3.stories.length === 0 && correctedTokens.length > 1) {
-        // Last attempt: OR-query on the corrected version
-        const correctedOrQuery = buildOrQuery(correctedTokens, corrected);
-        const phase3b = await fetchFromGuardian(
-          apiKey,
-          correctedOrQuery,
-          corrected,
-          true
-        );
+      console.info(
+        `[Chirpie/story-search] Phase2 AND "${correctedAndQuery}" → ${phase2.stories.length} matches`
+      );
 
-        console.info(
-          `[Chirpie/story-search] Phase3b OR "${correctedOrQuery}" → ${phase3b.stories.length} matches`
-        );
-
-        const stories: RawStory[] = phase3b.stories
+      if (phase2.stories.length > 0) {
+        const stories: RawStory[] = phase2.stories
           .slice(0, 5)
           .map(({ _score, ...s }) => s);
         return NextResponse.json({
-          query: correctedOrQuery,
+          query: correctedAndQuery,
           correctedQuery: corrected,
           stories,
           retried: true,
         });
       }
+    }
+
+    // ── Phase 3: broad OR-query (last resort) ─────────────────────────────
+    //    Uses the corrected query when available (so OR-broad on "stock market"
+    //    not "stick market"), keeping our client-side 2-token threshold strict
+    //    to avoid coincidental single-token matches.
+    //    Only attempted for multi-token queries (single-token OR == AND).
+    if (activeTokens.length > 1) {
+      const orQuery = buildOrQuery(activeTokens, activeQuery);
+
+      console.info(`[Chirpie/story-search] Phase3 OR "${orQuery}" (broad)`);
+
+      const phase3 = await fetchFromGuardian(apiKey, orQuery, activeQuery, true);
 
       console.info(
-        `[Chirpie/story-search] Phase3 AND "${correctedAndQuery}" → ${phase3.stories.length} matches`
+        `[Chirpie/story-search] Phase3 → ${phase3.rawCount} Guardian results, ` +
+        `${phase3.stories.length} broad matches`
       );
 
-      const stories: RawStory[] = phase3.stories
-        .slice(0, 5)
-        .map(({ _score, ...s }) => s);
-      return NextResponse.json({
-        query: correctedAndQuery,
-        correctedQuery: corrected,
-        stories,
-        retried: true,
-      });
+      if (phase3.stories.length > 0) {
+        const stories: RawStory[] = phase3.stories
+          .slice(0, 5)
+          .map(({ _score, ...s }) => s);
+        return NextResponse.json({
+          query: orQuery,
+          ...(corrected ? { correctedQuery: corrected } : {}),
+          stories,
+          retried: true,
+        });
+      }
     }
 
     // All phases exhausted

@@ -5,6 +5,54 @@
  * No dependencies — pure string operations, safe to import in client components.
  */
 
+// ─── Pre-normalization (routing-level typo correction) ────────────────────────
+
+/**
+ * Applies conservative, high-confidence corrections for common misspellings
+ * of routing-critical keywords (category names, navigation terms) BEFORE any
+ * routing decisions are made.
+ *
+ * These corrections are intentionally narrow. Only patterns where:
+ *   (a) the typo is an extremely common 1-2 character error, AND
+ *   (b) the correction is unambiguous in a news-app context.
+ *
+ * General entity/topic typos ("chapple roan") are handled by the search
+ * route's AI correction phase — not here.
+ */
+export function preNormalizeQuery(text: string): string {
+  return text
+    // Finance / market — "stick market" is by far the most common variant
+    .replace(/\bstick\s+market/gi, "stock market")
+    .replace(/\bstikc\s+market/gi, "stock market")
+    .replace(/\bstocke?\s+market/gi, "stock market")
+    .replace(/\bsotck\b/gi, "stock")
+    .replace(/\bstokc\b/gi, "stock")
+    .replace(/\bstcok\b/gi, "stock")
+    .replace(/\bfinannce\b/gi, "finance")
+    .replace(/\bfinace\b/gi, "finance")
+    .replace(/\bfinnce\b/gi, "finance")
+    .replace(/\bfincance\b/gi, "finance")
+    .replace(/\becononomy\b/gi, "economy")
+    .replace(/\bmarkeet\b/gi, "market")
+    .replace(/\bmaket\b/gi, "market")
+    // Navigation — "updatee" double-letter suffix
+    .replace(/\bupdatee+\b/gi, "update")
+    .replace(/\bupdaet\b/gi, "update")
+    // Pop culture
+    .replace(/\bpoph\b/gi, "pop")
+    .replace(/\bpop[- ]?cultur\b/gi, "pop culture")
+    // Tech
+    .replace(/\btehc\b/gi, "tech")
+    .replace(/\bteche\b/gi, "tech")
+    // Navigation
+    .replace(/\bmoree\b/gi, "more")
+    .replace(/\bneext\b/gi, "next")
+    .replace(/\bnaother\b/gi, "another")
+    .replace(/\banohter\b/gi, "another");
+}
+
+// ─── Story follow-up classifier ───────────────────────────────────────────────
+
 /**
  * Returns true ONLY when the typed text is clearly a contextual follow-up
  * about the currently active story — i.e., the user is asking about THIS
@@ -28,7 +76,7 @@ export function isStoryFollowUp(text: string): boolean {
     /^what has been (the |a )?/,
     /^what('?s| is) (happening here|happening in this|the deal here|the situation)/,
 
-    // Next / future about this article
+    // Next / future about this article (bare — no entity name following)
     /^what('?s| is) next\s*\??$/,
     /^what happens next\s*\??$/,
     /^what('?s| will) happen (next|now|after)\s*\??$/,
@@ -49,7 +97,7 @@ export function isStoryFollowUp(text: string): boolean {
     /^how (does|did|is|was|do) (this|it|that)/,
     /^how (significant|important|big) is (this|it)/,
 
-    // Broader context on this article
+    // Broader context on this article (bare — no topic name following)
     /^(broader|deeper|more|additional) (context|background|details)\s*\??$/,
     /^key (takeaway|takeaways|point|points|detail|details)\s*\??$/,
 

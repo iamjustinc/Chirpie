@@ -5,7 +5,7 @@ import { AppShell } from "@/components/shell/AppShell";
 import { ConversationThread } from "@/components/digest/ConversationThread";
 import type { StoryChip } from "@/components/digest/ConversationThread";
 import { loadUserPrefs, getToneGreeting, toneToApiTone } from "@/lib/user-prefs";
-import { isStoryFollowUp } from "@/lib/query/normalize";
+import { isStoryFollowUp, preNormalizeQuery } from "@/lib/query/normalize";
 import { fetchStoryTransform } from "@/lib/demo/fetch-story-transform";
 import { getLeadStoryForCategory } from "@/lib/content/get-demo-stories";
 import { uiCategoryToContentCategory } from "@/lib/content/normalize-story";
@@ -206,6 +206,10 @@ function inferCategoryFromQuery(query: string): Category | null {
 function isNextStoryRequest(text: string): boolean {
   const q = normalizeText(text);
 
+  // Exact navigation phrases with no category signal.
+  // Category-qualified "another X update" phrases are intentionally excluded
+  // here — they are handled in handleTypedComposerIntent step 2 with
+  // category-constrained routing via handleNextStoryInCategory.
   return [
     "next",
     "next news",
@@ -216,14 +220,41 @@ function isNextStoryRequest(text: string): boolean {
     "more news",
     "more",
     "next please",
-    "another update",
-    "another pop update",
-    "another general update",
-    "another finance update",
-    "another tech update",
-    "another sports update",
-    "another world update",
   ].includes(q);
+}
+
+/**
+ * Extracts an explicit category from navigation phrases like
+ * "another pop update", "another finance update", "more tech news".
+ * Used in the "another X update" routing step to pick a category-constrained
+ * next story rather than an unconstrained chip.
+ * Returns null when no recognizable category keyword is present.
+ */
+function parseCategoryFromPhrase(text: string): Category | null {
+  const q = normalizeText(text);
+
+  if (q.includes("pop") || q.includes("entertainment") || q.includes("celeb")) {
+    return "pop-culture";
+  }
+  if (
+    q.includes("finance") || q.includes("financial") ||
+    q.includes("market") || q.includes("stock") || q.includes("economy")
+  ) {
+    return "finance";
+  }
+  if (q.includes("tech") || q.includes("technology")) {
+    return "technology";
+  }
+  if (q.includes("sport")) {
+    return "sports";
+  }
+  if (q.includes("world") || q.includes("global")) {
+    return "world";
+  }
+  if (q.includes("general") || q.includes("top news")) {
+    return "general";
+  }
+  return null;
 }
 
 function extractTopicQuery(text: string, lastSearchTopic?: string | null): string {
@@ -469,6 +500,51 @@ export default function DigestPage() {
     [nextSuggestionChip, handleStoryChipSelect, appendAssistantMessage]
   );
 
+  /**
+   * Category-locked "next story" handler.
+   *
+   * Used when the user explicitly names a category in their request
+   * (e.g. "another pop update", "another finance update"). Guarantees the
+   * returned story stays inside the requested category by:
+   *
+   *   1. Finding the first unshown chip whose story belongs to that category.
+   *   2. Falling back to handleTopicSelect (live feed for that category)
+   *      if no unshown chip exists — always in-category, never drifts.
+   *
+   * This replaces the previous behaviour where these requests called
+   * handleNextStory (unconstrained chip list), causing category drift.
+   */
+  const handleNextStoryInCategory = useCallback(
+    async (category: Category, customUserText: string) => {
+      const contentCat = uiCategoryToContentCategory(category);
+
+      // Find an unshown chip whose RawStory belongs to this category
+      const categoryChip = storyChips.find((chip) => {
+        if (!contentCat) return false;
+        if (chip.id === selectedChipId) return false; // skip already-shown chip
+        const rawStory = storyMap.get(chip.id);
+        return rawStory?.category === contentCat;
+      });
+
+      if (categoryChip) {
+        console.log(
+          `[Chirpie] next_story_in_category "${category}" → chip "${categoryChip.id}"`
+        );
+        await handleStoryChipSelect(categoryChip.id, customUserText);
+        return;
+      }
+
+      // No unshown chip for this category — fall through to category live feed.
+      // handleTopicSelect always picks the live-feed story for the category,
+      // keeping the result in-category even if it repeats.
+      console.log(
+        `[Chirpie] next_story_in_category "${category}" — no fresh chip, falling back to topic select`
+      );
+      await handleTopicSelect(category, customUserText);
+    },
+    [storyChips, storyMap, selectedChipId, handleStoryChipSelect, handleTopicSelect]
+  );
+
   const handleGuardianTopicSearch = useCallback(
     async (userText: string) => {
       const query = extractTopicQuery(userText, lastSearchTopic);
@@ -554,60 +630,89 @@ export default function DigestPage() {
 
   const handleTypedComposerIntent = useCallback(
     async (text: string): Promise<boolean> => {
-      const normalized = normalizeText(text);
-      console.log("[composer] raw:", JSON.stringify(text));
+      // Apply routing-level typo correction FIRST (e.g. "stick market" → "stock
+      // market", "updatee" → "update") so all downstream checks operate on the
+      // corrected form. The original text is preserved for the user-facing message.
+      const correctedText = preNormalizeQuery(text);
+      const normalized = normalizeText(correctedText);
 
-      // 1. Navigation shortcuts — exact phrases like "next", "more", "another one"
+      console.log(
+        "[composer] raw:", JSON.stringify(text),
+        correctedText !== text ? `→ pre-normalized: ${JSON.stringify(correctedText)}` : ""
+      );
+
+      // 1. Exact navigation shortcuts ("next", "more", "another one", etc.)
+      //    Category-qualified phrases like "another pop update" are intentionally
+      //    NOT in this list — they are handled in step 2 with category locking.
       if (isNextStoryRequest(normalized)) {
         console.log("[composer] route → next_story");
-        await handleNextStory(text);
+        await handleNextStory(correctedText);
         return true;
       }
 
-      // 2. Contextual "another X update" (e.g., "another pop update")
+      // 2. "another X update / story" — category-aware next story.
+      //    Parse the explicit category from the phrase (e.g. "pop" in
+      //    "another pop update"). If found, use handleNextStoryInCategory which
+      //    guarantees the result stays inside that category (never drifts to
+      //    general/world/etc). Falls back to lastCategory context if no category
+      //    keyword is present in the phrase.
       const lastCategory = getLastStoryCategory();
-      if (normalized.includes("another") && normalized.includes("update") && lastCategory) {
-        console.log("[composer] route → contextual_next_story", lastCategory);
-        await handleNextStory(text);
-        return true;
-      }
+      const isAnotherRequest =
+        normalized.includes("another") &&
+        (normalized.includes("update") || normalized.includes("story"));
 
-      // 3. Explicit category redirect — narrow set of phrases that clearly mean
-      //    "switch me to this category", not "search for this entity".
-      //    Bare entity names (artists, games, market terms) are intentionally NOT
-      //    caught here — they go to search instead so Guardian finds specific articles.
-      const matchedCategory = categoryMatchesQuery(normalized);
-      if (matchedCategory) {
-        const lastCat = getLastStoryCategory();
-        if (lastCat === matchedCategory) {
-          console.log("[composer] route → next_story (same-category dedup)", matchedCategory);
-          await handleNextStory(text);
+      if (isAnotherRequest) {
+        const phraseCategory = parseCategoryFromPhrase(normalized);
+        const targetCategory = phraseCategory ?? lastCategory;
+
+        if (targetCategory) {
+          console.log("[composer] route → next_story_in_category", targetCategory);
+          await handleNextStoryInCategory(targetCategory, correctedText);
         } else {
-          console.log("[composer] route → topic_switch", matchedCategory);
-          await handleTopicSelect(matchedCategory, text);
+          // No category signal at all — fall back to unconstrained next story
+          console.log("[composer] route → next_story (no category context)");
+          await handleNextStory(correctedText);
         }
         return true;
       }
 
-      // 4. Clear story follow-up — user is asking about the CURRENT article.
-      //    This is a strict allowlist (see lib/query/normalize.ts). Anything that
-      //    doesn't match falls through to search below.
-      if (isStoryFollowUp(text)) {
+      // 3. Explicit category redirect — narrow phrases that clearly mean
+      //    "switch me to this category" (e.g. "stock market", "pop culture",
+      //    "more finance"). Bare entity names are intentionally NOT caught here.
+      const matchedCategory = categoryMatchesQuery(normalized);
+      if (matchedCategory) {
+        const lastCat = getLastStoryCategory();
+        if (lastCat === matchedCategory) {
+          // Already on this category — find the next story inside it rather
+          // than picking a random chip (which may be in a different category).
+          console.log("[composer] route → next_story_in_category (same-cat dedup)", matchedCategory);
+          await handleNextStoryInCategory(matchedCategory, correctedText);
+        } else {
+          console.log("[composer] route → topic_switch", matchedCategory);
+          await handleTopicSelect(matchedCategory, correctedText);
+        }
+        return true;
+      }
+
+      // 4. Clear story follow-up — strictly about the CURRENT article.
+      //    Allowlist in lib/query/normalize.ts. Anything that doesn't match
+      //    falls through to Guardian search.
+      if (isStoryFollowUp(correctedText)) {
         console.log("[composer] route → story_follow_up");
         return false;
       }
 
       // 5. DEFAULT: search Guardian for a new story.
-      //    This is the primary path for bare entity names, artist/game/topic
-      //    queries, typo-heavy inputs, and anything that isn't clearly navigation
-      //    or a follow-up question about the active article.
+      //    Primary path for bare entity names, artist/game/topic queries,
+      //    remaining typo-heavy inputs, and anything not caught above.
       console.log("[composer] route → topic_search (default)");
-      await handleGuardianTopicSearch(text);
+      await handleGuardianTopicSearch(correctedText);
       return true;
     },
     [
       handleGuardianTopicSearch,
       handleNextStory,
+      handleNextStoryInCategory,
       handleTopicSelect,
       getLastStoryCategory,
     ]
